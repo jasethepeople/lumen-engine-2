@@ -1,0 +1,134 @@
+{
+  // Lumen engine example — 'cinematic-story' (single-page cinematic storytelling).
+  // Uses template kind "cinematic-spa" resolved through createExtendedRegistry(),
+  // which specializes it to the cinematic-story descriptor.
+  // Sequence: title card (3s) → 3 acts (1.2s crossfade overlap) → credits,
+  // with a score asset and keyboard navigation (scene:next / scene:prev).
+  "version": 3,
+  "id": "cinematic-story",
+  "template": "cinematic-spa",
+  "meta": {
+    "title": "The Long Way North",
+    "description": "A single-page cinematic story told in three acts, built with Lumen.",
+    "locale": "en"
+  },
+  "theme": {
+    "colors": {
+      // merged over CINEMATIC_STORY_THEME_DEFAULTS → --lumen-color-*
+      "background": "#08080c",
+      "foreground": "#efece4",
+      "accent": "#b0874f"
+    }
+  },
+  "assets": [
+    {
+      "id": "act-one-film",
+      "src": "https://media.example.com/lumen/north-act1.mp4", // placeholder remote URL
+      "kind": "video",
+      "duration": 6,
+      "preload": "critical"
+    },
+    {
+      "id": "story-score",
+      "src": "https://media.example.com/lumen/north-score.mp3",
+      "kind": "audio",
+      "preload": "eager"
+    },
+    {
+      "id": "act-three-still",
+      "src": "https://media.example.com/lumen/north-act3.jpg",
+      "kind": "image",
+      "preload": "lazy"
+    }
+  ],
+  "scenes": [
+    {
+      // Title card: holds for 3s (track duration), then crossfades into act 1.
+      "id": "title-card",
+      "slot": "title-card",
+      "nodes": [
+        { "id": "title-text", "kind": "dom", "html": "<h1>The Long Way North</h1><p>A story in three acts</p>" }
+      ],
+      "track": { "driver": "time", "durationOrRange": 3 },
+      "a11y": { "label": "Title card" }
+    },
+    {
+      // Act 1: 6s window (from track.durationOrRange), includes a video plane.
+      "id": "act-1",
+      "slot": "acts",
+      "nodes": [
+        { "id": "act-1-video", "kind": "video-plane", "assetId": "act-one-film" },
+        { "id": "act-1-caption", "kind": "dom", "html": "<h2>I. Departure</h2><p>The road unspools behind.</p>" }
+      ],
+      "track": { "driver": "time", "durationOrRange": 6 },
+      "a11y": { "label": "Act one: departure" }
+    },
+    {
+      // Act 2: meta.durationHint (8s) overrides the track duration for sequencing.
+      "id": "act-2",
+      "slot": "acts",
+      "nodes": [
+        {
+          "id": "act-2-caption",
+          "kind": "dom",
+          "html": "<h2>II. Weather</h2><p>The storm decides the pace.</p>",
+          "meta": { "durationHint": 8 }
+        }
+      ],
+      "track": { "driver": "time", "durationOrRange": 5 },
+      "a11y": { "label": "Act two: weather" }
+    },
+    {
+      // Act 3: 6s window with a still image sprite.
+      "id": "act-3",
+      "slot": "acts",
+      "nodes": [
+        { "id": "act-3-still", "kind": "sprite", "assetId": "act-three-still" },
+        { "id": "act-3-caption", "kind": "dom", "html": "<h2>III. Arrival</h2><p>North is a feeling, not a place.</p>" }
+      ],
+      "track": { "driver": "time", "durationOrRange": 6 },
+      "a11y": { "label": "Act three: arrival" }
+    },
+    {
+      // Score: a DOM carrier node whose meta.assetId references the audio asset;
+      // the runtime autoplays it once, aligned with the sequence clock.
+      "id": "score",
+      "slot": "score",
+      "nodes": [
+        { "id": "score-carrier", "kind": "dom", "html": "", "meta": { "assetId": "story-score" } }
+      ],
+      "track": { "driver": "time", "durationOrRange": 0 },
+      "a11y": { "label": "Musical score" }
+    },
+    {
+      // Credits: follow the final act after a 1.2s crossfade.
+      "id": "credits",
+      "slot": "credits",
+      "nodes": [
+        { "id": "credits-roll", "kind": "dom", "html": "<p>Directed by Lumen · Shot on location</p>" }
+      ],
+      "track": { "driver": "time", "durationOrRange": 4 },
+      "a11y": { "label": "Credits" }
+    }
+  ],
+  "interactions": [
+    {
+      // Keyboard navigation: right/left arrows map (via the runtime's onNavigate)
+      // to the 'scene:next' / 'scene:prev' bus events; declaratively, these
+      // bindings target the act tracks they scrub/jump.
+      "id": "kbd-next",
+      "source": "keyboard",
+      "scene": "act-1",
+      "inputRange": [0, 1],
+      "a11yFallback": "steps"
+    },
+    {
+      "id": "kbd-prev",
+      "source": "keyboard",
+      "scene": "act-2",
+      "inputRange": [0, 1],
+      "a11yFallback": "steps"
+    }
+  ],
+  "build": { "target": "static", "ssr": true, "minify": false }
+}

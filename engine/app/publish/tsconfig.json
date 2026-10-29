@@ -1,0 +1,32 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "noEmit": false,
+    "paths": {
+      "@lumen/contracts": [
+        "../../contracts/dist/index.d.ts"
+      ],
+      "@lumen/templates": [
+        "../../packages/templates/dist/index.d.ts"
+      ],
+      "@lumen/config": [
+        "../../packages/config/dist/index.d.ts"
+      ],
+      "@lumen/codegen": [
+        "../../packages/codegen/dist/index.d.ts"
+      ],
+      "@lumen/build": [
+        "../../packages/build/dist/index.d.ts"
+      ],
+      "@lumen/runtime": [
+        "../../packages/runtime/dist/index.d.ts"
+      ]
+    }
+  },
+  "include": [
+    "src"
+  ]
+}

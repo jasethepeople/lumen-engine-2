@@ -1,0 +1,80 @@
+{
+  // Lumen engine example — a minimal scroll-video site.
+  // Two scenes: a full-viewport scrubbed video stage, plus a caption scene
+  // with two text overlays. Assets are placeholder remote URLs (no binaries).
+  "version": 3,
+  "id": "simple-site",
+  "template": "scroll-video",
+  "meta": {
+    "title": "Lumen Simple Site",
+    "description": "A minimal scroll-scrubbed video site built with the Lumen engine.",
+    "locale": "en"
+  },
+  "theme": {
+    "colors": {
+      "background": "#0b0b10",
+      "foreground": "#f5f5f0",
+      "accent": "#8ab4ff"
+    }
+  },
+  "assets": [
+    {
+      "id": "hero-video",
+      "src": "https://media.example.com/lumen/hero.mp4",
+      "kind": "video",
+      "duration": 8,
+      "preload": "critical"
+    },
+    {
+      "id": "hero-poster",
+      "src": "https://media.example.com/lumen/hero-poster.jpg",
+      "kind": "image",
+      "preload": "eager"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "hero",
+      "slot": "stage",
+      "nodes": [
+        { "id": "hero-video-plane", "kind": "video-plane", "assetId": "hero-video" }
+      ],
+      "track": { "driver": "scroll", "durationOrRange": 8 },
+      "a11y": {
+        "label": "Hero background video",
+        "summary": "A slow pan over an abstract landscape, scrubbed by scrolling."
+      }
+    },
+    {
+      "id": "captions",
+      "slot": "caption",
+      "nodes": [
+        {
+          "id": "caption-title",
+          "kind": "dom",
+          "html": "<h1>Lumen</h1><p>Scroll-driven cinematic sites from a single config.</p>"
+        },
+        {
+          "id": "caption-sub",
+          "kind": "dom",
+          "html": "<p>Built with contracts, kernels and templates — no framework lock-in.</p>"
+        }
+      ],
+      "track": { "driver": "scroll", "durationOrRange": 4 },
+      "a11y": {
+        "label": "Introduction captions",
+        "summary": "Title and tagline shown over the hero video."
+      }
+    }
+  ],
+  "interactions": [
+    {
+      "id": "scroll-main",
+      "source": "scroll",
+      "scene": "hero",
+      "inputRange": [0, 1],
+      "a11yFallback": "steps"
+    }
+  ],
+  "build": { "target": "static", "ssr": true, "minify": false }
+}

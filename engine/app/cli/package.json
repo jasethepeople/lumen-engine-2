@@ -1,0 +1,29 @@
+{
+  "name": "@lumen/cli",
+  "version": "0.1.0",
+  "description": "Lumen engine media CLI: scrub encodes, mobile frame stacks, probes, and IRAssetRef/AssetManifest emission (P7 hybrid variants).",
+  "type": "module",
+  "bin": {
+    "lumen-media": "./dist/bin/lumen-media.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test test/"
+  }
+}

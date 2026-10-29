@@ -1,0 +1,4599 @@
+# Phase 4 — code patches (7c206cb...agent/phase4-patches)
+
+Organized per implementation plan. Each section is the exact diff of the
+per-plan commit(s) on branch `agent/phase4-patches`.
+
+
+## P10 — per-compose id context (`599458d`)
+
+```diff
+diff --git a/packages/templates/src/index.ts b/packages/templates/src/index.ts
+index 83a4f9e..f738b36 100644
+--- a/packages/templates/src/index.ts
++++ b/packages/templates/src/index.ts
+@@ -49,7 +49,12 @@ export {
+   type TemplateValidationResult,
+   type TemplateValidationWarning,
+ } from './registry.js';
+-export { normalizeScrollRange, MIN_SCROLL_WINDOW } from './internal.js';
++export {
++  normalizeScrollRange,
++  MIN_SCROLL_WINDOW,
++  createComposeContext,
++  type ComposeContext,
++} from './internal.js';
+ export {
+   resolveThemeTokens,
+   toCssVariables,
+diff --git a/packages/templates/src/internal.ts b/packages/templates/src/internal.ts
+index 60b0a27..4ad4306 100644
+--- a/packages/templates/src/internal.ts
++++ b/packages/templates/src/internal.ts
+@@ -28,16 +28,37 @@ export function identityTransform(): Transform {
+   };
+ }
+ 
+-let counter = 0;
++/**
++ * Per-compose id context (P10): an isolated id counter so parallel or
++ * worker-based composes never interleave ids. Sequential single-threaded
++ * builds through the default context produce byte-identical IR to the old
++ * module-global counter.
++ */
++export interface ComposeContext {
++  nextId(prefix: string): string;
++  readonly seed: number;
++}
++
++export function createComposeContext(seed = 0): ComposeContext {
++  let counter = seed;
++  return {
++    seed,
++    nextId: (prefix: string): string => {
++      counter += 1;
++      return `${prefix}-${counter}`;
++    },
++  };
++}
++
++let defaultCtx = createComposeContext();
+ 
+ /** Deterministic-ish id helper; resets per compose() call via resetIds(). */
+ export function nextId(prefix: string): string {
+-  counter += 1;
+-  return `${prefix}-${counter}`;
++  return defaultCtx.nextId(prefix);
+ }
+ 
+ export function resetIds(): void {
+-  counter = 0;
++  defaultCtx = createComposeContext();
+ }
+ 
+ export interface NodeInit {
+diff --git a/packages/templates/test/compose-context.test.mjs b/packages/templates/test/compose-context.test.mjs
+new file mode 100644
+index 0000000..b59e944
+--- /dev/null
++++ b/packages/templates/test/compose-context.test.mjs
+@@ -0,0 +1,38 @@
++/**
++ * P10 — per-compose id context: isolated contexts never interleave ids;
++ * legacy nextId()/resetIds() wrappers behave exactly as before.
++ */
++import test from 'node:test';
++import assert from 'node:assert/strict';
++
++import { createComposeContext } from '../dist/index.js';
++import { nextId, resetIds } from '../dist/internal.js';
++
++test('two explicit contexts interleaved produce non-interleaved ids', () => {
++  const a = createComposeContext();
++  const b = createComposeContext();
++  const seq = [a.nextId('n'), b.nextId('n'), a.nextId('n'), b.nextId('n')];
++  assert.deepEqual(seq, ['n-1', 'n-1', 'n-2', 'n-2']);
++});
++
++test('context seed offsets the counter', () => {
++  const ctx = createComposeContext(41);
++  assert.equal(ctx.seed, 41);
++  assert.equal(ctx.nextId('x'), 'x-42');
++});
++
++test('legacy resetIds()+nextId() sequence unchanged', () => {
++  resetIds();
++  assert.equal(nextId('a'), 'a-1');
++  assert.equal(nextId('a'), 'a-2');
++  resetIds();
++  assert.equal(nextId('b'), 'b-1');
++});
++
++test('default context is isolated from explicit contexts', () => {
++  resetIds();
++  const ctx = createComposeContext();
++  ctx.nextId('c');
++  ctx.nextId('c');
++  assert.equal(nextId('d'), 'd-1');
++});
+```
+
+## P2 — variant array on IRAssetRef (`cc89563`)
+
+```diff
+diff --git a/contracts/src/assets.ts b/contracts/src/assets.ts
+index b86095d..a80eb48 100644
+--- a/contracts/src/assets.ts
++++ b/contracts/src/assets.ts
+@@ -20,6 +20,12 @@ interface AssetEntryBase {
+   preload: PreloadStrategy;
+   /** Total transferred bytes across variants. */
+   bytes: number;
++  /**
++   * Rich wire variants this entry was synthesized from (P2/P7 seam).
++   * Present only on entries materialized from `IRAssetRef.variants` at
++   * boot; build-pipeline manifests leave it absent.
++   */
++  irVariants?: import('./ir.js').IRAssetVariant[];
+ }
+ 
+ /** Raster image asset with responsive variants. */
+diff --git a/contracts/src/ir.ts b/contracts/src/ir.ts
+index 6db30e9..f3a71a5 100644
+--- a/contracts/src/ir.ts
++++ b/contracts/src/ir.ts
+@@ -49,6 +49,21 @@ export interface IRTrack {
+ /** A lowered interaction binding (pass-through of the resolved contract). */
+ export type IRBinding = InteractionBinding;
+ 
++/** One delivery variant of an asset, preserved across the wire (P2). */
++export interface IRAssetVariant {
++  src: string;
++  /** Container/format hint, e.g. 'avif' | 'webp' | 'mp4' | 'webm' | 'poster'. */
++  format?: string;
++  /** Codec hint for video variants, e.g. 'h264' | 'hevc' | 'av1' | 'vp9'. */
++  codec?: string;
++  /** Pixel width when known (responsive srcsets). */
++  width?: number;
++  /** Transfer size when known. */
++  bytes?: number;
++  /** Delivery mode; 'gop1' marks all-keyframe scrub encodes. */
++  delivery: 'progressive' | 'gop1' | 'frame-stack' | 'hls';
++}
++
+ /** A runtime asset reference collected from config + scene payloads. */
+ export interface IRAssetRef {
+   id: string;
+@@ -57,6 +72,8 @@ export interface IRAssetRef {
+   preload?: NonNullable<EngineConfig['assets'][number]['preload']>;
+   /** Known media duration in seconds (video/audio); 0/omitted means unknown. */
+   duration?: number;
++  /** Rich variants preserved across the wire; `src` remains the fallback. */
++  variants?: IRAssetVariant[];
+ }
+ 
+ /**
+diff --git a/packages/codegen/src/ir.ts b/packages/codegen/src/ir.ts
+index c06fc8d..c060cd2 100644
+--- a/packages/codegen/src/ir.ts
++++ b/packages/codegen/src/ir.ts
+@@ -8,9 +8,11 @@
+  */
+ 
+ import type {
++  AssetManifest,
+   ComposedScene,
+   EngineConfig,
+   IRAssetRef,
++  IRAssetVariant,
+   IRNode,
+   SceneIR,
+   SceneNode,
+@@ -54,15 +56,68 @@ export function walkIR(nodes: IRNode[], visit: (node: IRNode) => void): void {
+   }
+ }
+ 
++/**
++ * Flatten a manifest entry's rich variants into wire IRAssetVariants (P2).
++ * Returns undefined when the entry is missing or carries no variant info,
++ * so lowering without a manifest stays byte-identical.
++ */
++function variantsFromManifestEntry(
++  manifest: AssetManifest | undefined,
++  id: string,
++): IRAssetVariant[] | undefined {
++  const entry = manifest?.assets[id];
++  if (!entry) return undefined;
++  const out: IRAssetVariant[] = [];
++  if (entry.kind === 'image') {
++    for (const format of ['avif', 'webp'] as const) {
++      const srcset = entry.variants[format]?.srcset;
++      if (!srcset) continue;
++      for (const [w, src] of Object.entries(srcset)) {
++        out.push({ src, format, width: Number(w), delivery: 'progressive' });
++      }
++    }
++    out.push({ src: entry.variants.fallback.url, delivery: 'progressive' });
++  } else if (entry.kind === 'video') {
++    const delivery = entry.scrubOptimized ? 'gop1' : 'progressive';
++    if (entry.variants.mp4) {
++      out.push({
++        src: entry.variants.mp4.url,
++        format: 'mp4',
++        codec: entry.variants.mp4.codec,
++        bytes: entry.variants.mp4.bytes,
++        delivery,
++      });
++    }
++    if (entry.variants.webm) {
++      out.push({
++        src: entry.variants.webm.url,
++        format: 'webm',
++        bytes: entry.variants.webm.bytes,
++        delivery,
++      });
++    }
++    if (entry.variants.hls) {
++      out.push({ src: entry.variants.hls.playlist, format: 'hls', delivery: 'hls' });
++    }
++    if (entry.poster) out.push({ src: entry.poster, format: 'poster', delivery: 'progressive' });
++  } else {
++    return undefined;
++  }
++  return out.length > 0 ? out : undefined;
++}
++
+ /**
+  * Lower config + composed scene into a SceneIR document.
+  * `descriptor` supplies the default theme tokens; `scene` is the result of
+  * `descriptor.compose(cfg, manifest)` provided by the caller.
++ * When the optional `manifest` is given, rich asset variants are preserved
++ * on the wire (P2); without it, output is byte-identical to before.
+  */
+ export function lowerToIR(
+   config: EngineConfig,
+   defaults: ThemeTokens,
+   scene: ComposedScene,
++  manifest?: AssetManifest,
+ ): SceneIR {
+   const a11y: SceneIR['a11y'] = {};
+   for (const sc of config.scenes) {
+@@ -92,6 +147,8 @@ export function lowerToIR(
+       const ref: IRAssetRef = { id: a.id, src: a.src, kind: a.kind };
+       if (a.preload !== undefined) ref.preload = a.preload;
+       if (a.duration !== undefined) ref.duration = a.duration;
++      const variants = variantsFromManifestEntry(manifest, a.id);
++      if (variants !== undefined) ref.variants = variants;
+       return ref;
+     }),
+     hydration: scene.hydration,
+diff --git a/packages/codegen/test/codegen.test.mjs b/packages/codegen/test/codegen.test.mjs
+index 61f184a..ed8f13b 100644
+--- a/packages/codegen/test/codegen.test.mjs
++++ b/packages/codegen/test/codegen.test.mjs
+@@ -262,3 +262,69 @@ test('unknown target throws', () => {
+     generate(makeConfig(), makeDescriptor(), makeScene(), makeOptions('bogus')),
+   );
+ });
++
++// ---------- P2: variant array on IRAssetRef ----------
++
++const P2_MANIFEST = {
++  version: 1,
++  generatedAt: new Date(0).toISOString(),
++  assets: {
++    'hero-video': {
++      id: 'hero-video',
++      kind: 'video',
++      preload: 'critical',
++      bytes: 1000,
++      duration: 12,
++      width: 1920,
++      height: 1080,
++      poster: '/media/hero-poster.jpg',
++      variants: {
++        mp4: { url: '/media/hero.mp4', bytes: 800, codec: 'h264' },
++        webm: { url: '/media/hero.webm', bytes: 700 },
++      },
++      scrubOptimized: true,
++    },
++    'unused-img': {
++      id: 'unused-img',
++      kind: 'image',
++      preload: 'critical',
++      bytes: 500,
++      width: 800,
++      height: 600,
++      variants: {
++        avif: { srcset: { 400: '/media/x-400.avif', 800: '/media/x-800.avif' } },
++        fallback: { url: '/media/x.png', mime: 'image/png' },
++      },
++    },
++  },
++};
++
++test('P2: lowering without a manifest is byte-identical (no variants key)', () => {
++  const ir = lowerToIR(makeConfig(), makeThemeTokens(), makeScene());
++  for (const ref of ir.assets) {
++    assert.equal('variants' in ref, false);
++  }
++});
++
++test('P2: lowering with a manifest preserves rich variants on the wire', () => {
++  const ir = lowerToIR(makeConfig(), makeThemeTokens(), makeScene(), P2_MANIFEST);
++  const vid = ir.assets.find((a) => a.id === 'hero-video');
++  assert.ok(Array.isArray(vid.variants));
++  const formats = vid.variants.map((v) => v.format);
++  assert.deepEqual(formats, ['mp4', 'webm', 'poster']);
++  assert.equal(vid.variants[0].codec, 'h264');
++  assert.equal(vid.variants[0].delivery, 'gop1'); // scrubOptimized → gop1
++  assert.equal(vid.variants[1].delivery, 'gop1');
++  const img = ir.assets.find((a) => a.id === 'unused-img');
++  const widths = img.variants.filter((v) => v.format === 'avif').map((v) => v.width).sort();
++  assert.deepEqual(widths, [400, 800]);
++  // Fallback variant (no format) keeps the plain src.
++  assert.equal(img.variants.find((v) => v.format === undefined).src, '/media/x.png');
++});
++
++test('P2: manifest missing an asset leaves its ref variant-less', () => {
++  const partial = { ...P2_MANIFEST, assets: { 'hero-video': P2_MANIFEST.assets['hero-video'] } };
++  const ir = lowerToIR(makeConfig(), makeThemeTokens(), makeScene(), partial);
++  assert.equal('variants' in ir.assets.find((a) => a.id === 'unused-img'), false);
++  assert.ok(Array.isArray(ir.assets.find((a) => a.id === 'hero-video').variants));
++});
+diff --git a/packages/runtime/src/ir.ts b/packages/runtime/src/ir.ts
+index b2ca56b..e371b08 100644
+--- a/packages/runtime/src/ir.ts
++++ b/packages/runtime/src/ir.ts
+@@ -7,7 +7,7 @@
+  * the runtime behavior (validation, raising, manifest synthesis).
+  */
+ 
+-import type { AssetManifest, ComposedScene, IRAssetRef, IRNode, SceneIR, SceneNode } from '@lumen/contracts';
++import type { AssetManifest, ComposedScene, IRAssetRef, IRAssetVariant, IRNode, SceneIR, SceneNode } from '@lumen/contracts';
+ import { SCENE_IR_VERSION } from '@lumen/contracts';
+ 
+ // SceneIR types are owned by @lumen/contracts (single declaration of the
+@@ -142,11 +142,90 @@ export function composedSceneFromIR(ir: SceneIR): ComposedScene {
+  * filled once the asset decodes. Also used by the root `createEngine()` so
+  * template composition can resolve asset ids before any build has run.
+  */
++/**
++ * Build a manifest entry from a wire variant array (P2). The entry is a
++ * faithful pass-through of the variants: image avif/webp widths become
++ * srcsets, video mp4/webm/hls variants map by format/codec, and
++ * `scrubOptimized` is set only when a `delivery:'gop1'` variant exists
++ * (fixing the blind `scrubOptimized:true` of the synthesis path).
++ */
++function entryFromVariants(
++  ref: IRAssetRef,
++  variants: readonly IRAssetVariant[],
++  base: { id: string; preload: NonNullable<IRAssetRef['preload']>; bytes: number },
++): AssetManifest['assets'][string] | null {
++  if (ref.kind === 'image') {
++    const srcsetFor = (format: string): Record<number, string> | undefined => {
++      const set: Record<number, string> = {};
++      for (const v of variants) {
++        if (v.format === format && typeof v.width === 'number') set[v.width] = v.src;
++      }
++      return Object.keys(set).length > 0 ? set : undefined;
++    };
++    const avif = srcsetFor('avif');
++    const webp = srcsetFor('webp');
++    const plain = variants.find((v) => v.format === undefined);
++    return {
++      ...base,
++      kind: 'image',
++      width: 0,
++      height: 0,
++      variants: {
++        ...(avif ? { avif: { srcset: avif } } : {}),
++        ...(webp ? { webp: { srcset: webp } } : {}),
++        fallback: { url: plain?.src ?? ref.src, mime: 'image/*' },
++      },
++      irVariants: [...variants],
++    };
++  }
++  if (ref.kind === 'video') {
++    const mp4v = variants.find((v) => v.format === 'mp4');
++    const webmv = variants.find((v) => v.format === 'webm');
++    const hlsv = variants.find((v) => v.format === 'hls' || v.delivery === 'hls');
++    const posterv = variants.find((v) => v.format === 'poster');
++    const codec = mp4v?.codec;
++    return {
++      ...base,
++      kind: 'video',
++      duration:
++        typeof ref.duration === 'number' && Number.isFinite(ref.duration) && ref.duration > 0
++          ? ref.duration
++          : 0,
++      width: 0,
++      height: 0,
++      poster: posterv?.src ?? '',
++      variants: {
++        ...(hlsv ? { hls: { playlist: hlsv.src, bandwidths: [] } } : {}),
++        ...(mp4v
++          ? {
++              mp4: {
++                url: mp4v.src,
++                bytes: mp4v.bytes ?? 0,
++                codec: codec === 'hevc' || codec === 'av1' ? codec : ('h264' as const),
++              },
++            }
++          : {}),
++        ...(webmv ? { webm: { url: webmv.src, bytes: webmv.bytes ?? 0 } } : {}),
++      },
++      scrubOptimized: variants.some((v) => v.delivery === 'gop1'),
++      irVariants: [...variants],
++    };
++  }
++  return null;
++}
++
+ export function manifestFromAssetRefs(refs: readonly IRAssetRef[]): AssetManifest {
+   const assets: AssetManifest['assets'] = {};
+   for (const ref of refs) {
+     const preload = ref.preload ?? 'lazy';
+     const base = { id: ref.id, preload, bytes: 0 };
++    if (ref.variants && ref.variants.length > 0) {
++      const entry = entryFromVariants(ref, ref.variants, base);
++      if (entry) {
++        assets[ref.id] = entry;
++        continue;
++      }
++    }
+     switch (ref.kind) {
+       case 'image':
+         assets[ref.id] = {
+diff --git a/packages/runtime/test/ir.test.mjs b/packages/runtime/test/ir.test.mjs
+index c2d836c..33d64a7 100644
+--- a/packages/runtime/test/ir.test.mjs
++++ b/packages/runtime/test/ir.test.mjs
+@@ -5,7 +5,7 @@
+ import assert from 'node:assert/strict';
+ import { test } from 'node:test';
+ 
+-import { describeSceneIRError, isSceneIR, parseSceneIR } from '../dist/index.js';
++import { describeSceneIRError, isSceneIR, manifestFromAssetRefs, parseSceneIR } from '../dist/index.js';
+ import { SCENE_IR_VERSION } from '../../../contracts/dist/index.js';
+ 
+ function validIR() {
+@@ -115,3 +115,106 @@ test('non-object and missing-shape inputs fail clearly', () => {
+   assert.match(describeSceneIRError({ version: 1 }), /site/);
+   assert.match(describeSceneIRError({ ...validIR(), tracks: {} }), /'tracks' to be an array/);
+ });
++
++// ---------- P2: variant-driven manifest synthesis ----------
++
++test('P2: ref without variants takes the legacy synthesis path (snapshot)', () => {
++  const manifest = manifestFromAssetRefs([
++    { id: 'img', src: '/a.png', kind: 'image' },
++    { id: 'vid', src: '/v.mp4', kind: 'video', duration: 5 },
++  ]);
++  assert.deepEqual(manifest.assets.img, {
++    id: 'img',
++    preload: 'lazy',
++    bytes: 0,
++    kind: 'image',
++    width: 0,
++    height: 0,
++    variants: { fallback: { url: '/a.png', mime: 'image/*' } },
++  });
++  assert.deepEqual(manifest.assets.vid, {
++    id: 'vid',
++    preload: 'lazy',
++    bytes: 0,
++    kind: 'video',
++    duration: 5,
++    width: 0,
++    height: 0,
++    poster: '',
++    variants: { mp4: { url: '/v.mp4', bytes: 0, codec: 'h264' } },
++    scrubOptimized: true,
++  });
++});
++
++test('P2: ref with variants produces a faithful pass-through manifest entry', () => {
++  const manifest = manifestFromAssetRefs([
++    {
++      id: 'img',
++      src: '/a.png',
++      kind: 'image',
++      variants: [
++        { src: '/a-400.avif', format: 'avif', width: 400, delivery: 'progressive' },
++        { src: '/a-800.webp', format: 'webp', width: 800, delivery: 'progressive' },
++        { src: '/a.png', delivery: 'progressive' },
++      ],
++    },
++  ]);
++  const entry = manifest.assets.img;
++  assert.deepEqual(entry.variants.avif.srcset, { 400: '/a-400.avif' });
++  assert.deepEqual(entry.variants.webp.srcset, { 800: '/a-800.webp' });
++  assert.equal(entry.variants.fallback.url, '/a.png');
++  assert.equal(entry.irVariants.length, 3);
++});
++
++test('P2: video without a gop1 variant is not scrubOptimized', () => {
++  const manifest = manifestFromAssetRefs([
++    {
++      id: 'vid',
++      src: '/v.mp4',
++      kind: 'video',
++      duration: 3,
++      variants: [
++        { src: '/v.mp4', format: 'mp4', codec: 'hevc', bytes: 10, delivery: 'progressive' },
++        { src: '/v.webm', format: 'webm', delivery: 'progressive' },
++        { src: '/v.m3u8', format: 'hls', delivery: 'hls' },
++        { src: '/p.jpg', format: 'poster', delivery: 'progressive' },
++      ],
++    },
++  ]);
++  const entry = manifest.assets.vid;
++  assert.equal(entry.scrubOptimized, false);
++  assert.equal(entry.variants.mp4.codec, 'hevc');
++  assert.equal(entry.variants.webm.url, '/v.webm');
++  assert.equal(entry.variants.hls.playlist, '/v.m3u8');
++  assert.equal(entry.poster, '/p.jpg');
++  assert.equal(entry.duration, 3);
++});
++
++test('P2: gop1 variant marks the entry scrubOptimized', () => {
++  const manifest = manifestFromAssetRefs([
++    {
++      id: 'vid',
++      src: '/v.mp4',
++      kind: 'video',
++      variants: [{ src: '/v.mp4', format: 'mp4', codec: 'h264', delivery: 'gop1' }],
++    },
++  ]);
++  assert.equal(manifest.assets.vid.scrubOptimized, true);
++});
++
++test('P2: empty variants array is treated as absent', () => {
++  const manifest = manifestFromAssetRefs([{ id: 'img', src: '/a.png', kind: 'image', variants: [] }]);
++  assert.deepEqual(manifest.assets.img.variants, { fallback: { url: '/a.png', mime: 'image/*' } });
++});
++
++test('P2: round-trip lower→raise preserves variant count', () => {
++  // Synthesize wire variants the way codegen would, then raise back.
++  const wire = [
++    { src: '/v.mp4', format: 'mp4', codec: 'h264', bytes: 9, delivery: 'gop1' },
++    { src: '/v.webm', format: 'webm', bytes: 8, delivery: 'gop1' },
++    { src: '/p.jpg', format: 'poster', delivery: 'progressive' },
++  ];
++  const manifest = manifestFromAssetRefs([{ id: 'v', src: '/v.mp4', kind: 'video', variants: wire }]);
++  assert.equal(manifest.assets.v.irVariants.length, wire.length);
++  assert.equal(manifest.assets.v.scrubOptimized, true);
++});
+```
+
+## P7 — capability-aware variant selection (`ab9d77c`)
+
+```diff
+diff --git a/packages/assets/src/index.ts b/packages/assets/src/index.ts
+index 49f31cf..122fc65 100644
+--- a/packages/assets/src/index.ts
++++ b/packages/assets/src/index.ts
+@@ -34,6 +34,8 @@ export {
+ 
+ export { LruCache, PersistentCache, AssetCache } from './cache.js';
+ 
++export { pickVariant, type PickVariantOptions } from './variants.js';
++
+ export {
+   AssetManager,
+   createAssetManager,
+diff --git a/packages/assets/src/loader.ts b/packages/assets/src/loader.ts
+index b98cf49..9a28be0 100644
+--- a/packages/assets/src/loader.ts
++++ b/packages/assets/src/loader.ts
+@@ -11,6 +11,7 @@
+ import type {
+   AssetEntry,
+   AudioAssetEntry,
++  CapabilityProfile,
+   FontAssetEntry,
+   ImageAssetEntry,
+   LoadState,
+@@ -19,6 +20,7 @@ import type {
+   VideoAssetEntry,
+ } from '@lumen/contracts';
+ import { resolveAssetUrl } from './manifest.js';
++import { pickVariant } from './variants.js';
+ 
+ /** Thrown when a loader needs a browser API that is not available. */
+ export class UnsupportedEnvironmentError extends Error {
+@@ -45,6 +47,12 @@ export interface LoadOptions {
+   onState?: LoadStateListener;
+   /** Fetch override (testing / custom transport). */
+   fetchImpl?: typeof fetch;
++  /**
++   * Probed capability profile (P7). When the manifest entry carries wire
++   * variants (`irVariants`, P2), variant choice becomes capability-driven;
++   * absent ⇒ the legacy static preference order, unchanged.
++   */
++  capabilities?: CapabilityProfile;
+ }
+ 
+ interface Env {
+@@ -173,12 +181,21 @@ async function loadVideo(entry: VideoAssetEntry, opts: LoadOptions): Promise<Ass
+   // Scrubbing demands the progressive variant; HLS only for linear playback.
+   // Defend against malformed manifests that slipped past validation: only
+   // non-empty strings are usable URLs.
+-  const rawProgressive = entry.variants.mp4?.url ?? entry.variants.webm?.url;
++  let rawProgressive = entry.variants.mp4?.url ?? entry.variants.webm?.url;
++  let rawHls = entry.variants.hls?.playlist;
++  // P7: capability-driven choice when the entry was built from wire variants.
++  if (entry.irVariants && entry.irVariants.length > 0 && opts.capabilities) {
++    const pick = pickVariant(opts.capabilities, entry.irVariants, 'video');
++    if (pick) {
++      if (pick.delivery === 'hls') rawHls = pick.src;
++      else rawProgressive = pick.src;
++    }
++  }
+   const progressive =
+     typeof rawProgressive === 'string' && rawProgressive !== '' ? rawProgressive : undefined;
+   const hlsPlaylist =
+-    typeof entry.variants.hls?.playlist === 'string' && entry.variants.hls.playlist !== ''
+-      ? entry.variants.hls.playlist
++    typeof rawHls === 'string' && rawHls !== ''
++      ? rawHls
+       : undefined;
+   if (entry.scrubOptimized && progressive) {
+     url = progressive;
+@@ -315,7 +332,13 @@ async function loadVideo(entry: VideoAssetEntry, opts: LoadOptions): Promise<Ass
+ 
+ async function loadImage(entry: ImageAssetEntry, opts: LoadOptions): Promise<AssetHandle> {
+   const env = makeEnv(opts);
+-  const url = resolveAssetUrl(pickImageUrl(entry), opts.cdnBase);
++  // P7: capability-driven choice when the entry was built from wire variants.
++  let chosen = pickImageUrl(entry);
++  if (entry.irVariants && entry.irVariants.length > 0 && opts.capabilities) {
++    const pick = pickVariant(opts.capabilities, entry.irVariants, 'image');
++    if (pick) chosen = pick.src;
++  }
++  const url = resolveAssetUrl(chosen, opts.cdnBase);
+   const bytes = await fetchBytes(env, url);
+   let bitmap: ImageBitmap | null = null;
+   if (typeof createImageBitmap === 'function' && typeof Blob === 'function') {
+diff --git a/packages/assets/src/manager.ts b/packages/assets/src/manager.ts
+index bebc90f..bb060a4 100644
+--- a/packages/assets/src/manager.ts
++++ b/packages/assets/src/manager.ts
+@@ -5,7 +5,7 @@
+  * Kernel-agnostic: progress leaves the manager through an injected emit
+  * callback (`asset:progress` payload) supplied at init.
+  */
+-import type { AssetManifest, LoadState } from '@lumen/contracts';
++import type { AssetManifest, CapabilityProfile, LoadState } from '@lumen/contracts';
+ import { contentHashKey, normalizeManifest, primaryUrl, resolveAssetUrl } from './manifest.js';
+ import type { AssetHandle } from './loader.js';
+ import { AssetCache } from './cache.js';
+@@ -22,6 +22,8 @@ export interface AssetManagerOptions {
+   cache?: { maxEntries?: number; maxBytes?: number; cacheName?: string };
+   /** Fetch override (testing / custom transport). */
+   fetchImpl?: typeof fetch;
++  /** Probed capability profile for variant selection (P7). */
++  capabilities?: CapabilityProfile;
+ }
+ 
+ export interface AssetStats {
+@@ -90,6 +92,7 @@ export class AssetManager {
+       ...(this.opts.concurrency !== undefined ? { concurrency: this.opts.concurrency } : {}),
+       signal: controller.signal,
+       ...(fetchImpl ? { fetchImpl } : {}),
++      ...(this.opts.capabilities ? { capabilities: this.opts.capabilities } : {}),
+       emit: (payload) => {
+         if (payload.assetId && !this.errors.has(payload.assetId)) {
+           this.states.set(payload.assetId, this.handles.has(payload.assetId) ? 'ready' : 'loading');
+diff --git a/packages/assets/src/variants.ts b/packages/assets/src/variants.ts
+new file mode 100644
+index 0000000..e1b3302
+--- /dev/null
++++ b/packages/assets/src/variants.ts
+@@ -0,0 +1,62 @@
++/**
++ * Capability-aware variant selection (P7).
++ *
++ * Pure function (same style as @lumen/rendering's select.ts): given the
++ * kernel's probed CapabilityProfile and a wire variant array (P2), pick the
++ * best delivery variant deterministically:
++ *   1. drop variants with an unsupported codec (video) — the probed
++ *      HEVC/AV1 matrix finally reaches the loader;
++ *   2. on memory-constrained devices (deviceMemoryGB <= 4) drop variants
++ *      wider than the dpr-scaled viewport class;
++ *   3. prefer the widest remaining variant within 2× the viewport;
++ *   4. otherwise the first variant (declaration order is author intent).
++ *
++ * `profile === undefined` returns undefined so callers fall back to the
++ * legacy static preference order, byte-identical to before P7.
++ */
++import type { CapabilityProfile, IRAssetVariant } from '@lumen/contracts';
++
++export interface PickVariantOptions {
++  /** CSS-pixel viewport width class used for width fitting. Default 1280. */
++  viewportWidth?: number;
++}
++
++const DEFAULT_VIEWPORT_WIDTH = 1280;
++
++export function pickVariant(
++  profile: CapabilityProfile | undefined,
++  variants: readonly IRAssetVariant[],
++  kind: 'image' | 'video',
++  options: PickVariantOptions = {},
++): IRAssetVariant | undefined {
++  if (profile === undefined || variants.length === 0) return undefined;
++  const viewport = options.viewportWidth ?? DEFAULT_VIEWPORT_WIDTH;
++
++  // 1. Codec support (video only — the profile carries a video codec matrix).
++  let pool = variants.filter((v) => {
++    if (kind === 'video' && typeof v.codec === 'string') {
++      const support = profile.codecs[v.codec as keyof CapabilityProfile['codecs']];
++      if (support && !support.supported) return false;
++    }
++    return true;
++  });
++  if (pool.length === 0) pool = [...variants]; // never starve: legacy order wins
++
++  // 2. Memory-constrained devices avoid oversized payloads.
++  const fitLimit = profile.dpr.current * viewport;
++  if (profile.deviceMemoryGB !== null && profile.deviceMemoryGB <= 4) {
++    const small = pool.filter((v) => v.width === undefined || v.width <= fitLimit);
++    if (small.length > 0) pool = small;
++  }
++
++  // 3. Widest variant within 2× the dpr-scaled viewport.
++  const within2x = pool.filter((v) => v.width === undefined || v.width <= 2 * fitLimit);
++  if (within2x.length > 0) pool = within2x;
++  const sized = pool.filter((v) => v.width !== undefined);
++  if (sized.length > 0) {
++    let best = sized[0]!;
++    for (const v of sized) if (v.width! > best.width!) best = v;
++    return best;
++  }
++  return pool[0];
++}
+diff --git a/packages/assets/test/variants.test.mjs b/packages/assets/test/variants.test.mjs
+new file mode 100644
+index 0000000..2dc4a1a
+--- /dev/null
++++ b/packages/assets/test/variants.test.mjs
+@@ -0,0 +1,99 @@
++/**
++ * P7 — pickVariant: capability-aware variant selection.
++ * Run against compiled dist: `node --test test/variants.test.mjs`.
++ */
++import test from 'node:test';
++import assert from 'node:assert/strict';
++
++import { pickVariant } from '../dist/index.js';
++
++const codec = (supported) => ({ supported, smooth: supported, powerEfficient: supported });
++
++function makeProfile(overrides = {}) {
++  return {
++    webgl2: true,
++    webgpu: false,
++    offscreenCanvas: true,
++    codecs: { h264: codec(true), hevc: codec(true), av1: codec(true), vp9: codec(true) },
++    maxTextureSize: 4096,
++    deviceMemoryGB: 8,
++    reducedMotion: false,
++    dpr: { min: 1, max: 2, current: 2 },
++    ...overrides,
++  };
++}
++
++const VIDEO_VARIANTS = [
++  { src: '/v-h264.mp4', format: 'mp4', codec: 'h264', width: 1920, delivery: 'gop1' },
++  { src: '/v-hevc.mp4', format: 'mp4', codec: 'hevc', width: 1920, delivery: 'gop1' },
++];
++
++test('undefined profile ⇒ undefined (legacy fallback preserved)', () => {
++  assert.equal(pickVariant(undefined, VIDEO_VARIANTS, 'video'), undefined);
++});
++
++test('empty variants ⇒ undefined', () => {
++  assert.equal(pickVariant(makeProfile(), [], 'video'), undefined);
++});
++
++test('codec filter drops hevc when unsupported', () => {
++  const profile = makeProfile({ codecs: { h264: codec(true), hevc: codec(false), av1: codec(false), vp9: codec(true) } });
++  const variants = [
++    { src: '/v-hevc.mp4', format: 'mp4', codec: 'hevc', delivery: 'gop1' },
++    { src: '/v-h264.mp4', format: 'mp4', codec: 'h264', delivery: 'gop1' },
++  ];
++  assert.equal(pickVariant(profile, variants, 'video').src, '/v-h264.mp4');
++});
++
++test('all codecs unsupported ⇒ never starves, falls back to first', () => {
++  const profile = makeProfile({ codecs: { h264: codec(false), hevc: codec(false), av1: codec(false), vp9: codec(false) } });
++  assert.equal(pickVariant(profile, VIDEO_VARIANTS, 'video').src, '/v-h264.mp4');
++});
++
++test('deviceMemory <= 4 prefers a smaller width within the dpr class', () => {
++  const profile = makeProfile({ deviceMemoryGB: 4, dpr: { min: 1, max: 1, current: 1 } });
++  const variants = [
++    { src: '/img-3200.avif', format: 'avif', width: 3200, delivery: 'progressive' },
++    { src: '/img-1200.avif', format: 'avif', width: 1200, delivery: 'progressive' },
++  ];
++  // fitLimit = 1 * 1280 = 1280 → 3200 dropped on low-memory devices.
++  assert.equal(pickVariant(profile, variants, 'image').src, '/img-1200.avif');
++});
++
++test('dpr fit picks 2x over 1x for a hi-dpi viewport', () => {
++  const profile = makeProfile({ dpr: { min: 1, max: 2, current: 2 } });
++  const variants = [
++    { src: '/img-800.avif', format: 'avif', width: 800, delivery: 'progressive' },
++    { src: '/img-1600.avif', format: 'avif', width: 1600, delivery: 'progressive' },
++  ];
++  // fitLimit = 2560; both within 2× → widest wins.
++  assert.equal(pickVariant(profile, variants, 'image').src, '/img-1600.avif');
++  // Same widths under dpr 1: 1600 still ≤ 2×1280 → widest wins too.
++  const lo = makeProfile({ dpr: { min: 1, max: 1, current: 1 } });
++  assert.equal(pickVariant(lo, variants, 'image').src, '/img-1600.avif');
++});
++
++test('variants beyond 2x viewport are shed', () => {
++  const profile = makeProfile({ dpr: { min: 1, max: 1, current: 1 } });
++  const variants = [
++    { src: '/img-8000.avif', format: 'avif', width: 8000, delivery: 'progressive' },
++    { src: '/img-1000.avif', format: 'avif', width: 1000, delivery: 'progressive' },
++  ];
++  assert.equal(pickVariant(profile, variants, 'image').src, '/img-1000.avif');
++});
++
++test('determinism: same inputs ⇒ same variant across runs', () => {
++  const profile = makeProfile();
++  const a = pickVariant(profile, VIDEO_VARIANTS, 'video');
++  const b = pickVariant(profile, VIDEO_VARIANTS, 'video');
++  assert.deepEqual(a, b);
++});
++
++test('unsized variants keep declaration order (author intent)', () => {
++  const profile = makeProfile();
++  const variants = [
++    { src: '/v.mp4', format: 'mp4', codec: 'h264', delivery: 'gop1' },
++    { src: '/v.webm', format: 'webm', delivery: 'gop1' },
++  ];
++  assert.equal(pickVariant(profile, variants, 'video').src, '/v.mp4');
++});
+diff --git a/packages/runtime/src/engine.ts b/packages/runtime/src/engine.ts
+index 69c8d3d..454ebdf 100644
+--- a/packages/runtime/src/engine.ts
++++ b/packages/runtime/src/engine.ts
+@@ -143,6 +143,7 @@ export async function bootEngine(
+   assets.init(manifestFromAssetRefs(ir.assets), {
+     cdnBase: options.cdnBase,
+     fetchImpl: options.fetchImpl,
++    capabilities: kernel.capabilities, // P7: capability-aware variant selection
+     emit: (payload) => bus.emit('asset:progress', payload),
+   });
+ 
+```
+
+## P1 — first-class reduced-motion semantics on the wire (`d73297e`)
+
+```diff
+diff --git a/contracts/src/config.ts b/contracts/src/config.ts
+index 6eac646..c899be7 100644
+--- a/contracts/src/config.ts
++++ b/contracts/src/config.ts
+@@ -56,7 +56,7 @@ export interface SceneConfig {
+     durationOrRange: number;
+   };
+   /** Accessibility metadata. */
+-  a11y: { label: string; summary?: string };
++  a11y: { label: string; summary?: string; motion?: import('./ir.js').MotionMode };
+ }
+ 
+ /** Declarative interaction binding authored in config. */
+diff --git a/contracts/src/ir.ts b/contracts/src/ir.ts
+index f3a71a5..a056dec 100644
+--- a/contracts/src/ir.ts
++++ b/contracts/src/ir.ts
+@@ -37,6 +37,9 @@ export interface IRNode {
+   children: IRNode[];
+ }
+ 
++/** Reduced-motion semantics for a track or scene (P1). */
++export type MotionMode = 'continuous' | 'reveal' | 'static';
++
+ /** A lowered timeline track. */
+ export interface IRTrack {
+   id: string;
+@@ -44,6 +47,29 @@ export interface IRTrack {
+   driver: TimelineTrack['driver'];
+   range: [number, number];
+   keyframes: TimelineTrack['keyframes'];
++  /** Per-track reduced-motion override; absent = inherit scene/default. */
++  motion?: MotionMode;
++}
++
++/**
++ * Single owner of reduced-motion behavior at runtime (P1). Driver kind never
++ * changes; only the interpolation policy does. Resolved per engine boot and
++ * consulted by the frame loop, the virtual scroller, and scrub seeks.
++ */
++export interface MotionPolicy {
++  /** Resolved scene-level mode. */
++  readonly mode: MotionMode;
++  /**
++   * Advance the time-driven clock: 'continuous'/'reveal' pass time (dt added);
++   * 'static' holds t=0.
++   */
++  advanceTime(elapsed: number, dt: number): number;
++  /** Interpolation policy: 'continuous' lerps; 'reveal'/'static' cut to target. */
++  interpolate(current: number, target: number, alpha: number): number;
++  /** Scrub quantization: 'reveal' snaps to the nearest boundary; 'static' holds 0. */
++  quantizeScrub(seconds: number, boundaries: readonly number[]): number;
++  /** Resolve the effective mode for one track (track override beats scene default). */
++  trackMode(track: IRTrack): MotionMode;
+ }
+ 
+ /** A lowered interaction binding (pass-through of the resolved contract). */
+@@ -105,5 +131,5 @@ export interface SceneIR {
+   /** Hydration hints from composition. */
+   hydration: ComposedScene['hydration'];
+   /** Per-scene accessibility metadata keyed by scene id. */
+-  a11y: Record<string, { label: string; summary?: string }>;
++  a11y: Record<string, { label: string; summary?: string; motion?: MotionMode }>;
+ }
+diff --git a/contracts/src/scene.ts b/contracts/src/scene.ts
+index 2d22caf..b695bbc 100644
+--- a/contracts/src/scene.ts
++++ b/contracts/src/scene.ts
+@@ -113,6 +113,8 @@ export interface TimelineTrack {
+   driver: 'time' | 'scroll' | 'pointer' | 'playback';
+   /** Playable range: seconds (time/playback) or scroll units (scroll/pointer). */
+   range: [number, number];
++  /** Per-track reduced-motion override (P1); absent = inherit scene/default. */
++  motion?: import('./ir.js').MotionMode;
+ }
+ 
+ /**
+diff --git a/packages/codegen/src/ir.ts b/packages/codegen/src/ir.ts
+index c060cd2..a9bc481 100644
+--- a/packages/codegen/src/ir.ts
++++ b/packages/codegen/src/ir.ts
+@@ -123,6 +123,7 @@ export function lowerToIR(
+   for (const sc of config.scenes) {
+     a11y[sc.id] = { label: sc.a11y.label };
+     if (sc.a11y.summary !== undefined) a11y[sc.id].summary = sc.a11y.summary;
++    if (sc.a11y.motion !== undefined) a11y[sc.id].motion = sc.a11y.motion;
+   }
+   const ir: SceneIR = {
+     version: SCENE_IR_VERSION,
+@@ -141,6 +142,7 @@ export function lowerToIR(
+       driver: t.driver,
+       range: t.range,
+       keyframes: t.keyframes,
++      ...(t.motion !== undefined ? { motion: t.motion } : {}),
+     })),
+     bindings: scene.bindings.slice(),
+     assets: config.assets.map((a) => {
+diff --git a/packages/config/src/schema.ts b/packages/config/src/schema.ts
+index ba294ed..8e4714d 100644
+--- a/packages/config/src/schema.ts
++++ b/packages/config/src/schema.ts
+@@ -41,6 +41,7 @@ const INPUT_SOURCES = ['scroll', 'pointer', 'touch', 'keyboard', 'deviceorientat
+ const A11Y_FALLBACKS = ['steps', 'static', 'native-video'] as const satisfies readonly A11yFallback[];
+ const NODE_KINDS = ['group', 'mesh', 'video-plane', 'dom', 'camera', 'light', 'sprite'] as const satisfies readonly SceneNodeConfig['kind'][];
+ const TRACK_DRIVERS = ['time', 'scroll', 'pointer', 'playback'] as const;
++const MOTION_MODES = ['continuous', 'reveal', 'static'] as const;
+ const GESTURES = ['pan', 'pinch', 'swipe', 'tap', 'longpress'] as const;
+ const BUILD_TARGETS = ['static', 'webcomponent', 'npm', 'runtime'] as const;
+ const MODULE_FORMATS = ['esm', 'cjs', 'iife'] as const;
+@@ -117,6 +118,7 @@ const sceneConfig: Validator<SceneConfig> = object({
+   a11y: object({
+     label: string({ nonEmpty: true }),
+     summary: optional(string()),
++    motion: optional(enumOf(MOTION_MODES)),
+   }),
+ }) as Validator<SceneConfig>;
+ 
+diff --git a/packages/interaction/src/manager.ts b/packages/interaction/src/manager.ts
+index b52f099..b2d08a0 100644
+--- a/packages/interaction/src/manager.ts
++++ b/packages/interaction/src/manager.ts
+@@ -18,7 +18,7 @@
+  * evaluate() merges them via its `drivers` param.
+  */
+ 
+-import type { GestureType, InteractionBinding } from '@lumen/contracts';
++import type { GestureType, InteractionBinding, MotionPolicy } from '@lumen/contracts';
+ import { GestureRecognizer, type GestureEvent, type GestureThresholds } from './gestures.js';
+ import { BindingRuntime, isStaticFallback } from './bindings.js';
+ import { InputNormalizer } from './normalize.js';
+@@ -33,6 +33,12 @@ export interface InteractionManagerOptions {
+   scroller?: VirtualScrollerOptions;
+   /** Honor prefers-reduced-motion (auto-detected in browser; pass explicitly in tests/SSR). */
+   reducedMotion?: boolean;
++  /**
++   * P1: engine-owned motion policy. When present, `policy.mode !== 'continuous'`
++   * supersedes the raw reducedMotion boolean for binding updates and the
++   * scroller's interpolation policy.
++   */
++  motion?: MotionPolicy;
+   /**
+    * Optional step-navigation *intent* hook — emits raw 'next' / 'prev' steps
+    * for keyboard navigation. Interaction deliberately does not know navigation
+@@ -52,6 +58,7 @@ export class InteractionManager {
+ 
+   private bindings = new Map<string, BindingRuntime>();
+   private reducedMotion: boolean;
++  private readonly motionPolicy?: MotionPolicy;
+   private onNavigate?: (d: 'next' | 'prev') => void;
+   private attachedRoot: HTMLElement | undefined;
+   private keyboardCleanup: Array<() => void> = [];
+@@ -66,7 +73,12 @@ export class InteractionManager {
+         ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+         : false);
+     this.onNavigate = opts.onNavigate;
+-    this.scroller = new LumenVirtualScroller({ ...opts.scroller, reducedMotion: this.reducedMotion });
++    this.motionPolicy = opts.motion;
++    this.scroller = new LumenVirtualScroller({
++      ...opts.scroller,
++      reducedMotion: this.reducedMotion,
++      ...(opts.motion ? { motion: opts.motion } : {}),
++    });
+     this.gestures = new GestureRecognizer(opts.gestureThresholds);
+     this.normalizer = new InputNormalizer({ wheelMultiplier: opts.scroller?.wheelMultiplier });
+     // Wire the DOM-free pipeline in the constructor so the manager is fully
+@@ -186,7 +198,10 @@ export class InteractionManager {
+       if (b.source === 'scroll' && !b.gesture) {
+         runtime.feedInput(scrollProgress);
+       }
+-      drivers[b.targetTrackId] = runtime.update(dt, this.reducedMotion);
++      drivers[b.targetTrackId] = runtime.update(
++        dt,
++        this.motionPolicy ? this.motionPolicy.mode !== 'continuous' : this.reducedMotion,
++      );
+     }
+     this.lastDrivers = drivers;
+     return drivers;
+diff --git a/packages/interaction/src/scroll.ts b/packages/interaction/src/scroll.ts
+index b1bee65..a3a978c 100644
+--- a/packages/interaction/src/scroll.ts
++++ b/packages/interaction/src/scroll.ts
+@@ -8,7 +8,7 @@
+  * is consistent across browsers and input devices.
+  */
+ 
+-import type { VirtualScroller } from '@lumen/contracts';
++import type { MotionPolicy, VirtualScroller } from '@lumen/contracts';
+ 
+ export interface VirtualScrollerOptions {
+   /** Lerp factor per 60fps frame (0–1). Higher = snappier. Default 0.12. */
+@@ -21,6 +21,13 @@ export interface VirtualScrollerOptions {
+   snapThreshold?: number;
+   /** When true (prefers-reduced-motion), progress jumps instantly. */
+   reducedMotion?: boolean;
++  /**
++   * P1: engine-owned motion policy. When supplied it supersedes the raw
++   * `reducedMotion` boolean: 'reveal'/'static' delegate the legacy fast
++   * paths to `policy.interpolate` (instant cuts; 'reveal' additionally
++   * steps to snap boundaries). Absent ⇒ legacy boolean behavior, untouched.
++   */
++  motion?: MotionPolicy;
+   /** Called whenever smoothed progress changes during update(). */
+   onProgress?: (progress: number) => void;
+ }
+@@ -36,6 +43,7 @@ export class LumenVirtualScroller implements VirtualScroller {
+   private snapPoints: number[];
+   private readonly snapThreshold: number;
+   private reducedMotion: boolean;
++  private readonly policy?: MotionPolicy;
+   private readonly onProgress?: (p: number) => void;
+   private detachFns: Array<() => void> = [];
+ 
+@@ -45,9 +53,15 @@ export class LumenVirtualScroller implements VirtualScroller {
+     this.snapPoints = opts.snap ? [...opts.snap].sort((a, b) => a - b) : [];
+     this.snapThreshold = opts.snapThreshold ?? 0.02;
+     this.reducedMotion = opts.reducedMotion ?? false;
++    this.policy = opts.motion;
+     this.onProgress = opts.onProgress;
+   }
+ 
++  /** Effective reduced-motion flag: policy mode wins when a policy is injected. */
++  private get reduced(): boolean {
++    return this.policy ? this.policy.mode !== 'continuous' : this.reducedMotion;
++  }
++
+   get progress(): number {
+     return this.current;
+   }
+@@ -59,7 +73,7 @@ export class LumenVirtualScroller implements VirtualScroller {
+ 
+   setReducedMotion(on: boolean): void {
+     this.reducedMotion = on;
+-    if (on) this.current = this.target;
++    if (this.reduced) this.current = this.target;
+   }
+ 
+   setSnapPoints(points: number[]): void {
+@@ -73,7 +87,7 @@ export class LumenVirtualScroller implements VirtualScroller {
+   feedDelta(deltaProgress: number): void {
+     if (!this.enabled) return;
+     this.target = clamp01(this.target + deltaProgress * this.wheelMultiplier);
+-    if (this.reducedMotion) {
++    if (this.reduced) {
+       this.current = this.target;
+       this.onProgress?.(this.current);
+     }
+@@ -86,7 +100,11 @@ export class LumenVirtualScroller implements VirtualScroller {
+    */
+   update(dt: number): number {
+     const prev = this.current;
+-    if (!this.reducedMotion) {
++    if (this.policy && this.policy.mode === 'reveal' && this.snapPoints.length > 0) {
++      // P1: reveal steps scroll progress to snap boundaries (state changes only).
++      this.target = this.policy.quantizeScrub(this.target, this.snapPoints);
++    }
++    if (!this.reduced) {
+       const frames = Math.max(dt, 0) * 60;
+       const alpha = 1 - Math.pow(1 - this.smoothing, frames);
+       this.current += (this.target - this.current) * alpha;
+@@ -99,6 +117,10 @@ export class LumenVirtualScroller implements VirtualScroller {
+           this.current = snapped;
+         }
+       }
++    } else if (this.policy) {
++      // Policy-driven cut (reveal/static): identical to the legacy jump but
++      // owned by the MotionPolicy so all clamp sites agree.
++      this.current = this.policy.interpolate(this.current, this.target, 1);
+     }
+     if (this.current !== prev) this.onProgress?.(this.current);
+     return this.current;
+@@ -120,7 +142,7 @@ export class LumenVirtualScroller implements VirtualScroller {
+   seek(p: number, opts?: { animate?: boolean }): void {
+     const target = clamp01(p);
+     this.target = target;
+-    if (opts?.animate === false || this.reducedMotion) {
++    if (opts?.animate === false || this.reduced) {
+       this.current = target;
+       this.onProgress?.(this.current);
+     }
+@@ -143,7 +165,7 @@ export class LumenVirtualScroller implements VirtualScroller {
+       if (max <= 0) return;
+       const p = clamp01(el.scrollTop / max);
+       this.target = p;
+-      if (this.reducedMotion) {
++      if (this.reduced) {
+         this.current = p;
+         this.onProgress?.(p);
+       }
+diff --git a/packages/interaction/test/scroll.test.mjs b/packages/interaction/test/scroll.test.mjs
+index 5b9ecee..197d20e 100644
+--- a/packages/interaction/test/scroll.test.mjs
++++ b/packages/interaction/test/scroll.test.mjs
+@@ -93,3 +93,63 @@ test('onProgress fires only when progress changes', () => {
+   for (let i = 0; i < 300; i++) s.update(FRAME);
+   assert.ok(Math.abs(values.at(-1) - 0.4) < 1e-6);
+ });
++
++// ---------- P1: MotionPolicy-driven scroller ----------
++
++// Minimal structural MotionPolicy double (shape matches @lumen/contracts).
++function makePolicy(mode) {
++  return {
++    mode,
++    advanceTime: (e, dt) => (mode === 'static' ? 0 : e + dt),
++    interpolate: (cur, target, alpha) =>
++      mode === 'continuous' ? cur + (target - cur) * alpha : target,
++    quantizeScrub: (s, bs) => {
++      if (mode === 'continuous') return s;
++      if (mode === 'static') return 0;
++      let best = bs[0] ?? 0;
++      for (const b of bs) if (Math.abs(s - b) < Math.abs(s - best)) best = b;
++      return best;
++    },
++    trackMode: (t) => t.motion ?? mode,
++  };
++}
++
++test('P1: policy-driven scroller equals legacy reduced-motion scroller output', () => {
++  const legacy = new LumenVirtualScroller({ reducedMotion: true });
++  const policyDriven = new LumenVirtualScroller({ motion: makePolicy('reveal') });
++  for (const d of [0.2, 0.15, -0.05, 0.3]) {
++    legacy.feedDelta(d);
++    policyDriven.feedDelta(d);
++    legacy.update(FRAME);
++    policyDriven.update(FRAME);
++    assert.equal(policyDriven.progress, legacy.progress);
++    assert.equal(policyDriven.targetProgress, legacy.targetProgress);
++  }
++});
++
++test('P1: continuous policy keeps smoothing (byte-identical to no policy)', () => {
++  const plain = new LumenVirtualScroller({ smoothing: 0.2 });
++  const withPolicy = new LumenVirtualScroller({ smoothing: 0.2, motion: makePolicy('continuous') });
++  plain.feedDelta(0.5);
++  withPolicy.feedDelta(0.5);
++  for (let i = 0; i < 10; i++) {
++    assert.equal(withPolicy.update(FRAME), plain.update(FRAME));
++  }
++});
++
++test('P1: reveal policy steps progress to snap boundaries', () => {
++  const s = new LumenVirtualScroller({ snap: [0, 0.5, 1], motion: makePolicy('reveal') });
++  s.feedDelta(0.4);
++  s.update(FRAME);
++  assert.equal(s.progress, 0.5); // quantized to nearest boundary
++  s.feedDelta(0.4);
++  s.update(FRAME);
++  assert.equal(s.progress, 1);
++});
++
++test('P1: policy supersedes the raw boolean', () => {
++  // reducedMotion=false but policy reveal → jumps instantly.
++  const s = new LumenVirtualScroller({ reducedMotion: false, motion: makePolicy('static') });
++  s.feedDelta(0.5);
++  assert.equal(s.progress, 0.5);
++});
+diff --git a/packages/runtime/src/engine.ts b/packages/runtime/src/engine.ts
+index 454ebdf..3120911 100644
+--- a/packages/runtime/src/engine.ts
++++ b/packages/runtime/src/engine.ts
+@@ -25,6 +25,7 @@ import type {
+   IRenderer,
+   KernelHandle,
+   LifecyclePhase,
++  MotionMode,
+   QualityLevel,
+   RenderFrame,
+   RendererBackend,
+@@ -51,6 +52,7 @@ import {
+   manifestFromAssetRefs,
+   type SceneIR,
+ } from './ir.js';
++import { createMotionPolicy } from './motion.js';
+ import { collectScrubTargets, createScrubber } from './scrub.js';
+ 
+ /** Options accepted by bootEngine(). */
+@@ -173,6 +175,22 @@ export async function bootEngine(
+   await kernel.start(); // created → booting → loading → ready → active
+ 
+   const reducedMotion = options.reducedMotion ?? kernel.capabilities.reducedMotion;
++  // P1: single owner of reduced-motion behavior. A wire scene default (any
++  // a11y entry declaring `motion`) wins; otherwise reduced motion maps to
++  // 'reveal' and full motion to 'continuous' (legacy boolean semantics).
++  const sceneMotion = ((): MotionMode | undefined => {
++    for (const key of Object.keys(ir.a11y).sort()) {
++      const m = ir.a11y[key]?.motion;
++      if (m === 'continuous' || m === 'reveal' || m === 'static') return m;
++    }
++    return undefined;
++  })();
++  const motionPolicy = createMotionPolicy({ reducedMotion, sceneDefault: sceneMotion });
++  // Scrub quantization boundaries per track (keyframe t values), cached at boot.
++  const scrubBoundaries = new Map<string, readonly number[]>();
++  for (const t of ir.tracks) {
++    if (t.keyframes.length > 0) scrubBoundaries.set(t.id, t.keyframes.map((k) => k.t));
++  }
+ 
+   // --- Renderer: capability selection + adaptive quality. ------------------
+   surface = document.createElement('canvas');
+@@ -211,6 +229,7 @@ export async function bootEngine(
+   const interaction = new InteractionManager({
+     bindings: ir.bindings,
+     reducedMotion,
++    motion: motionPolicy,
+     onNavigate: (dir) => bus.emit(dir === 'next' ? 'scene:next' : 'scene:prev', {}),
+   });
+   interaction.attach(rootElement);
+@@ -226,9 +245,9 @@ export async function bootEngine(
+     (frame) => {
+       const dt = frame.delta / 1000;
+       const drivers: DriverMap = interaction.update(dt);
+-      // Reduced motion: time-driven tracks hold at their first frame; only
+-      // user-driven (scroll/pointer) tracks advance.
+-      if (!reducedMotion) elapsed += dt;
++      // P1: the motion policy owns the clock. 'continuous'/'reveal' pass
++      // time; 'static' holds t=0. (Legacy: raw `if (!reducedMotion)`.)
++      elapsed = motionPolicy.advanceTime(elapsed, dt);
+ 
+       // Adapter: the interaction layer emits per-track seconds (trackId →
+       // scalar); the scene layer resolves playheads per driver kind. Merge:
+@@ -236,7 +255,25 @@ export async function bootEngine(
+       const playheads = resolvePlayheads(scene.tracks, elapsed, {});
+       for (const [trackId, value] of Object.entries(drivers)) playheads.set(trackId, value);
+       applyBindings(scene.graph, scene.tracks, playheads);
+-      if (scrubTargets.length > 0) scrubber.update(playheads, scrubTargets);
++      if (scrubTargets.length > 0) {
++        // P1: tracks resolving to 'reveal' quantize scrub seeks to their
++        // keyframe boundaries (a scroll-scrubbed video no longer frame-seeks
++        // under reduced motion). Track overrides are honored via trackMode.
++        let scrubHeads = playheads;
++        let quantized: Map<string, number> | null = null;
++        for (const track of scene.tracks) {
++          if (motionPolicy.trackMode(track) !== 'reveal') continue;
++          const value = playheads.get(track.id);
++          if (value !== undefined) {
++            (quantized ??= new Map(playheads)).set(
++              track.id,
++              motionPolicy.quantizeScrub(value, scrubBoundaries.get(track.id) ?? []),
++            );
++          }
++        }
++        if (quantized) scrubHeads = quantized;
++        scrubber.update(scrubHeads, scrubTargets);
++      }
+       scene.graph.updateWorldTransforms();
+ 
+       const drawList: DrawCall[] = [];
+diff --git a/packages/runtime/src/index.ts b/packages/runtime/src/index.ts
+index e42f5de..b96651a 100644
+--- a/packages/runtime/src/index.ts
++++ b/packages/runtime/src/index.ts
+@@ -16,6 +16,12 @@ export {
+   type IRTrack,
+   type SceneIR,
+ } from './ir.js';
++export {
++  createMotionPolicy,
++  type MotionMode,
++  type MotionPolicy,
++  type MotionPolicyOptions,
++} from './motion.js';
+ export {
+   asKernelHandle,
+   bootEngine,
+diff --git a/packages/runtime/src/motion.ts b/packages/runtime/src/motion.ts
+new file mode 100644
+index 0000000..dbc4a9d
+--- /dev/null
++++ b/packages/runtime/src/motion.ts
+@@ -0,0 +1,74 @@
++/**
++ * @lumen/runtime — MotionPolicy (P1): the single owner of reduced-motion
++ * behavior. Replaces the three independent boolean clamps (frame loop,
++ * virtual scroller, binding runtimes) that could drift.
++ *
++ * Semantics (locked in Phase 2):
++ *   - 'continuous': today's behavior, byte-identical (lerp, raw seeks).
++ *   - 'reveal': state changes only — time still passes (advanceTime adds dt)
++ *     but interpolation cuts to the target and scrub seeks quantize to
++ *     section/keyframe boundaries; no smoothing.
++ *   - 'static': time-driven tracks hold at t=0; the SSR poster (P17) is the
++ *     visible surface.
++ *
++ * The driver kind never changes (`track.driver` stays 'time'/'scroll'/…);
++ * only the interpolation policy switches, per frame, reversible at runtime.
++ */
++
++import type { IRTrack, MotionMode, MotionPolicy } from '@lumen/contracts';
++
++export type { MotionMode, MotionPolicy } from '@lumen/contracts';
++
++export interface MotionPolicyOptions {
++  /** prefers-reduced-motion (capability probe or BootOptions override). */
++  reducedMotion: boolean;
++  /** Scene default declared on the wire (a11y[scene].motion), if any. */
++  sceneDefault?: MotionMode;
++  /** Scene section boundaries (scroll snap points), when known. */
++  boundaries?: readonly number[];
++}
++
++const CONTINUOUS: MotionMode = 'continuous';
++
++/**
++ * Resolve the engine-level policy. A wire-declared scene default always wins;
++ * absent wire data, reduced motion maps to 'reveal' and full motion to
++ * 'continuous' (legacy boolean semantics preserved as derived defaults).
++ */
++export function createMotionPolicy(options: MotionPolicyOptions): MotionPolicy {
++  const mode: MotionMode =
++    options.sceneDefault ?? (options.reducedMotion ? 'reveal' : CONTINUOUS);
++  const boundaries = options.boundaries ?? [];
++
++  const quantize = (seconds: number, bs: readonly number[]): number => {
++    let best = bs[0] ?? 0;
++    let bestDist = Math.abs(seconds - best);
++    for (const b of bs) {
++      const d = Math.abs(seconds - b);
++      if (d < bestDist) {
++        best = b;
++        bestDist = d;
++      }
++    }
++    return best;
++  };
++
++  return {
++    mode,
++    advanceTime(elapsed: number, dt: number): number {
++      return mode === 'static' ? 0 : elapsed + dt;
++    },
++    interpolate(_current: number, target: number, alpha: number): number {
++      if (mode === CONTINUOUS) return _current + (target - _current) * alpha;
++      return target;
++    },
++    quantizeScrub(seconds: number, bs: readonly number[] = boundaries): number {
++      if (mode === CONTINUOUS) return seconds;
++      if (mode === 'static') return 0;
++      return quantize(seconds, bs);
++    },
++    trackMode(track: IRTrack): MotionMode {
++      return track.motion ?? mode;
++    },
++  };
++}
+diff --git a/packages/runtime/test/ir.test.mjs b/packages/runtime/test/ir.test.mjs
+index 33d64a7..976ecfd 100644
+--- a/packages/runtime/test/ir.test.mjs
++++ b/packages/runtime/test/ir.test.mjs
+@@ -218,3 +218,27 @@ test('P2: round-trip lower→raise preserves variant count', () => {
+   assert.equal(manifest.assets.v.irVariants.length, wire.length);
+   assert.equal(manifest.assets.v.scrubOptimized, true);
+ });
++
++// ---------- P1: motion fields on the wire ----------
++
++test('P1: v1 doc without motion validates (byte-identical behavior)', () => {
++  const ir = validIR();
++  assert.equal(isSceneIR(ir), true);
++  assert.equal('motion' in ir.tracks[0], false);
++});
++
++test('P1: track motion override and a11y scene default are accepted', () => {
++  const ir = validIR();
++  ir.tracks[0].motion = 'reveal';
++  ir.a11y = { hero: { label: 'Hero', motion: 'static' } };
++  assert.equal(isSceneIR(ir), true);
++  const parsed = parseSceneIR(ir);
++  assert.equal(parsed.tracks[0].motion, 'reveal');
++  assert.equal(parsed.a11y.hero.motion, 'static');
++});
++
++test('P1: unknown motion values are tolerated (validation stays structural)', () => {
++  const ir = validIR();
++  ir.tracks[0].motion = 'warp-9';
++  assert.equal(isSceneIR(ir), true); // ignored, not rejected
++});
+diff --git a/packages/runtime/test/motion.test.mjs b/packages/runtime/test/motion.test.mjs
+new file mode 100644
+index 0000000..4a5cc34
+--- /dev/null
++++ b/packages/runtime/test/motion.test.mjs
+@@ -0,0 +1,74 @@
++/**
++ * P1 — MotionPolicy: single owner of reduced-motion behavior.
++ * Run against compiled dist: `node --test test/motion.test.mjs`.
++ */
++import test from 'node:test';
++import assert from 'node:assert/strict';
++
++import { createMotionPolicy } from '../dist/index.js';
++
++test('continuous default: legacy behavior byte-identical', () => {
++  const p = createMotionPolicy({ reducedMotion: false });
++  assert.equal(p.mode, 'continuous');
++  assert.equal(p.advanceTime(1.5, 0.25), 1.75);
++  assert.equal(p.interpolate(0, 10, 0.5), 5);
++  assert.equal(p.quantizeScrub(3.3, [0, 2, 4]), 3.3);
++});
++
++test('reduced motion without wire fields maps to reveal', () => {
++  const p = createMotionPolicy({ reducedMotion: true });
++  assert.equal(p.mode, 'reveal');
++});
++
++test('reveal advances time but freezes interpolation', () => {
++  const p = createMotionPolicy({ reducedMotion: true, sceneDefault: 'reveal' });
++  assert.equal(p.advanceTime(2, 0.5), 2.5); // time passes
++  assert.equal(p.interpolate(0, 10, 0.5), 10); // crossfades become cuts
++});
++
++test('static holds t=0 and jumps instantly', () => {
++  const p = createMotionPolicy({ reducedMotion: true, sceneDefault: 'static' });
++  assert.equal(p.advanceTime(2, 0.5), 0);
++  assert.equal(p.interpolate(3, 10, 0.5), 10);
++  assert.equal(p.quantizeScrub(3.3, [1, 2, 4]), 0);
++});
++
++test('wire scene default wins over the reducedMotion boolean', () => {
++  const p = createMotionPolicy({ reducedMotion: true, sceneDefault: 'continuous' });
++  assert.equal(p.mode, 'continuous');
++  const q = createMotionPolicy({ reducedMotion: false, sceneDefault: 'reveal' });
++  assert.equal(q.mode, 'reveal');
++});
++
++test('per-track override beats scene default', () => {
++  const p = createMotionPolicy({ reducedMotion: false, sceneDefault: 'continuous' });
++  assert.equal(p.trackMode({ id: 't', motion: 'reveal' }), 'reveal');
++  assert.equal(p.trackMode({ id: 't' }), 'continuous');
++  const r = createMotionPolicy({ reducedMotion: true });
++  assert.equal(r.trackMode({ id: 't', motion: 'continuous' }), 'continuous');
++  assert.equal(r.trackMode({ id: 't' }), 'reveal');
++});
++
++test('quantizeScrub snaps to the nearest boundary under reveal', () => {
++  const p = createMotionPolicy({ reducedMotion: true, sceneDefault: 'reveal' });
++  assert.equal(p.quantizeScrub(3.3, [0, 2, 4]), 4);
++  assert.equal(p.quantizeScrub(2.9, [0, 2, 4]), 2);
++  assert.equal(p.quantizeScrub(0.1, []), 0);
++});
++
++test('quantizeScrub uses construction boundaries by default', () => {
++  const p = createMotionPolicy({ reducedMotion: true, boundaries: [0, 0.5, 1] });
++  assert.equal(p.quantizeScrub(0.8), 1);
++});
++
++test('policy swap mid-run: a fresh policy takes effect immediately', () => {
++  // Simulates a prefers-reduced-motion toggle: the engine rebuilds the
++  // policy and the next frame uses it.
++  let policy = createMotionPolicy({ reducedMotion: false });
++  let elapsed = 0;
++  elapsed = policy.advanceTime(elapsed, 1 / 60);
++  assert.ok(elapsed > 0);
++  policy = createMotionPolicy({ reducedMotion: true, sceneDefault: 'static' });
++  elapsed = policy.advanceTime(elapsed, 1 / 60);
++  assert.equal(elapsed, 0);
++});
+```
+
+## P15 — track segments, keyframe bezier, driver smoothing descriptor (`94b1ff4`)
+
+```diff
+diff --git a/contracts/src/ir.ts b/contracts/src/ir.ts
+index a056dec..f7b2160 100644
+--- a/contracts/src/ir.ts
++++ b/contracts/src/ir.ts
+@@ -49,6 +49,10 @@ export interface IRTrack {
+   keyframes: TimelineTrack['keyframes'];
+   /** Per-track reduced-motion override; absent = inherit scene/default. */
+   motion?: MotionMode;
++  /** Driver-level interpolation policy (P15); absent = global smoothing. */
++  smoothing?: TimelineTrack['smoothing'];
++  /** Reusable keyframe segments merged into the keyframe stream (P15). */
++  segments?: TimelineTrack['segments'];
+ }
+ 
+ /**
+diff --git a/contracts/src/scene.ts b/contracts/src/scene.ts
+index b695bbc..7112644 100644
+--- a/contracts/src/scene.ts
++++ b/contracts/src/scene.ts
+@@ -99,6 +99,30 @@ export interface Keyframe {
+   value: number | number[] | string;
+   /** Easing applied from this keyframe to the next. */
+   easing?: EasingName;
++  /**
++   * Wire-faithful cubic bezier easing (P15); preferred over the named
++   * `easing` when both are present. Codegen also writes the nearest named
++   * easing into `easing` so old runtimes degrade gracefully.
++   */
++  easingBezier?: CubicBezier;
++}
++
++/** Driver-level interpolation descriptor for a track (P15). */
++export interface TrackSmoothing {
++  mode: 'lerp' | 'spring' | 'none';
++  /** Lerp factor per 60fps frame ('lerp') or spring stiffness ('spring'). */
++  stiffness?: number;
++  /** Spring damping ratio input ('spring' only). */
++  damping?: number;
++}
++
++/** A reusable keyframe segment flattened into a track at evaluation (P15). */
++export interface TrackSegment {
++  id: string;
++  /** Segment window in track time; local key t (0..1) maps into [from, to]. */
++  from: number;
++  to: number;
++  keys: Keyframe[];
+ }
+ 
+ /** An animation track attached to scene nodes via PropertyBinding. */
+@@ -115,6 +139,10 @@ export interface TimelineTrack {
+   range: [number, number];
+   /** Per-track reduced-motion override (P1); absent = inherit scene/default. */
+   motion?: import('./ir.js').MotionMode;
++  /** Driver-level interpolation policy (P15); absent = global smoothing. */
++  smoothing?: TrackSmoothing;
++  /** Reusable keyframe segments merged into the keyframe stream (P15). */
++  segments?: TrackSegment[];
+ }
+ 
+ /**
+diff --git a/packages/codegen/src/ir.ts b/packages/codegen/src/ir.ts
+index a9bc481..8ffc654 100644
+--- a/packages/codegen/src/ir.ts
++++ b/packages/codegen/src/ir.ts
+@@ -10,6 +10,7 @@
+ import type {
+   AssetManifest,
+   ComposedScene,
++  EasingName,
+   EngineConfig,
+   IRAssetRef,
+   IRAssetVariant,
+@@ -17,6 +18,7 @@ import type {
+   SceneIR,
+   SceneNode,
+   ThemeTokens,
++  TimelineTrack,
+ } from '@lumen/contracts';
+ import { SCENE_IR_VERSION } from '@lumen/contracts';
+ import { resolveThemeTokens } from '@lumen/templates';
+@@ -27,6 +29,53 @@ import { resolveThemeTokens } from '@lumen/templates';
+ export { SCENE_IR_VERSION } from '@lumen/contracts';
+ export type { IRAssetRef, IRBinding, IRNode, IRTrack, SceneIR } from '@lumen/contracts';
+ 
++/** Nearest named easing to a cubic bezier (forward-compat fallback, P15). */
++function nearestEasingName(bezier: readonly [number, number, number, number]): EasingName {
++  const named: Record<EasingName, (t: number) => number> = {
++    linear: (t) => t,
++    'ease-in': (t) => t * t,
++    'ease-out': (t) => 1 - (1 - t) * (1 - t),
++    'ease-in-out': (t) => (t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t)),
++    step: (t) => (t < 1 ? 0 : 1),
++  };
++  // Sample the bezier's y curve at the bezier's own x parameterization.
++  const [x1, y1, x2, y2] = bezier;
++  const sample = (u: number): number => {
++    const cy = 3 * y1;
++    const by = 3 * (y2 - y1) - cy;
++    const ay = 1 - cy - by;
++    return ((ay * u + by) * u + cy) * u;
++  };
++  void x1;
++  void x2;
++  let best: EasingName = 'linear';
++  let bestErr = Infinity;
++  for (const [name, fn] of Object.entries(named) as [EasingName, (t: number) => number][]) {
++    let err = 0;
++    for (const u of [0.25, 0.5, 0.75]) err += (sample(u) - fn(u)) ** 2;
++    if (err < bestErr) {
++      bestErr = err;
++      best = name;
++    }
++  }
++  return best;
++}
++
++/**
++ * Forward-compat keyframe pass (P15): keyframes carrying `easingBezier` also
++ * get the nearest `EasingName` in legacy `easing` so old runtimes degrade to
++ * the named curve instead of dropping the easing entirely. Keyframes without
++ * a bezier pass through by reference (byte-identical output).
++ */
++function lowerKeyframes(keys: TimelineTrack['keyframes']): TimelineTrack['keyframes'] {
++  if (!keys.some((k) => k.easingBezier !== undefined && k.easing === undefined)) return keys;
++  return keys.map((k) =>
++    k.easingBezier !== undefined && k.easing === undefined
++      ? { ...k, easing: nearestEasingName(k.easingBezier) }
++      : k,
++  );
++}
++
+ /** Lower one SceneNode into an IRNode, recursively. */
+ function lowerNode(node: SceneNode): IRNode {
+   const ir: IRNode = {
+@@ -141,8 +190,10 @@ export function lowerToIR(
+       target: t.target,
+       driver: t.driver,
+       range: t.range,
+-      keyframes: t.keyframes,
++      keyframes: lowerKeyframes(t.keyframes),
+       ...(t.motion !== undefined ? { motion: t.motion } : {}),
++      ...(t.smoothing !== undefined ? { smoothing: t.smoothing } : {}),
++      ...(t.segments !== undefined ? { segments: t.segments } : {}),
+     })),
+     bindings: scene.bindings.slice(),
+     assets: config.assets.map((a) => {
+diff --git a/packages/codegen/test/codegen.test.mjs b/packages/codegen/test/codegen.test.mjs
+index ed8f13b..f1f7282 100644
+--- a/packages/codegen/test/codegen.test.mjs
++++ b/packages/codegen/test/codegen.test.mjs
+@@ -328,3 +328,43 @@ test('P2: manifest missing an asset leaves its ref variant-less', () => {
+   assert.equal('variants' in ir.assets.find((a) => a.id === 'unused-img'), false);
+   assert.ok(Array.isArray(ir.assets.find((a) => a.id === 'hero-video').variants));
+ });
++
++// ---------- P15: smoothing/segments/bezier lowering ----------
++
++test('P15: lowering passes smoothing and segments through', () => {
++  const scene = makeScene();
++  scene.tracks[0].smoothing = { mode: 'spring', stiffness: 0.2, damping: 0.9 };
++  scene.tracks[0].segments = [{ id: 's', from: 0, to: 1, keys: [{ t: 0, value: 0 }] }];
++  const ir = lowerToIR(makeConfig(), makeThemeTokens(), scene);
++  assert.deepEqual(ir.tracks[0].smoothing, { mode: 'spring', stiffness: 0.2, damping: 0.9 });
++  assert.equal(ir.tracks[0].segments[0].id, 's');
++});
++
++test('P15: easingBezier keyframes also get the nearest named easing (forward compat)', () => {
++  const scene = makeScene();
++  scene.tracks[0].keyframes = [
++    { t: 0, value: 0, easingBezier: [0.42, 0, 0.58, 1] },
++    { t: 1, value: 1 },
++  ];
++  const ir = lowerToIR(makeConfig(), makeThemeTokens(), scene);
++  assert.deepEqual(ir.tracks[0].keyframes[0].easingBezier, [0.42, 0, 0.58, 1]);
++  assert.equal(ir.tracks[0].keyframes[0].easing, 'ease-in-out'); // nearest named
++  // Unbeziered keyframes untouched.
++  assert.equal('easing' in ir.tracks[0].keyframes[1], false);
++});
++
++test('P15: keyframes without bezier pass through by reference (byte-identical)', () => {
++  const scene = makeScene();
++  const ir = lowerToIR(makeConfig(), makeThemeTokens(), scene);
++  assert.equal(ir.tracks[0].keyframes, scene.tracks[0].keyframes);
++});
++
++test('P15: explicit named easing is never overwritten by the fallback', () => {
++  const scene = makeScene();
++  scene.tracks[0].keyframes = [
++    { t: 0, value: 0, easing: 'step', easingBezier: [0.42, 0, 0.58, 1] },
++    { t: 1, value: 1 },
++  ];
++  const ir = lowerToIR(makeConfig(), makeThemeTokens(), scene);
++  assert.equal(ir.tracks[0].keyframes[0].easing, 'step');
++});
+diff --git a/packages/interaction/src/manager.ts b/packages/interaction/src/manager.ts
+index b2d08a0..50332ff 100644
+--- a/packages/interaction/src/manager.ts
++++ b/packages/interaction/src/manager.ts
+@@ -18,7 +18,7 @@
+  * evaluate() merges them via its `drivers` param.
+  */
+ 
+-import type { GestureType, InteractionBinding, MotionPolicy } from '@lumen/contracts';
++import type { GestureType, InteractionBinding, MotionPolicy, TrackSmoothing } from '@lumen/contracts';
+ import { GestureRecognizer, type GestureEvent, type GestureThresholds } from './gestures.js';
+ import { BindingRuntime, isStaticFallback } from './bindings.js';
+ import { InputNormalizer } from './normalize.js';
+@@ -39,6 +39,14 @@ export interface InteractionManagerOptions {
+    * scroller's interpolation policy.
+    */
+   motion?: MotionPolicy;
++  /**
++   * P15: per-track driver smoothing descriptors (keyed by track id).
++   * 'lerp'/'spring' smooth the driver value with frame-rate compensation;
++   * 'none' passes the raw value through (snap). A motion policy whose mode
++   * is not 'continuous' forces 'none'. Absent ⇒ single global scroller
++   * smoothing, unchanged.
++   */
++  trackSmoothing?: Readonly<Record<string, TrackSmoothing>>;
+   /**
+    * Optional step-navigation *intent* hook — emits raw 'next' / 'prev' steps
+    * for keyboard navigation. Interaction deliberately does not know navigation
+@@ -59,6 +67,8 @@ export class InteractionManager {
+   private bindings = new Map<string, BindingRuntime>();
+   private reducedMotion: boolean;
+   private readonly motionPolicy?: MotionPolicy;
++  private readonly trackSmoothing?: Readonly<Record<string, TrackSmoothing>>;
++  private readonly smoothState = new Map<string, { pos: number; vel: number }>();
+   private onNavigate?: (d: 'next' | 'prev') => void;
+   private attachedRoot: HTMLElement | undefined;
+   private keyboardCleanup: Array<() => void> = [];
+@@ -74,6 +84,7 @@ export class InteractionManager {
+         : false);
+     this.onNavigate = opts.onNavigate;
+     this.motionPolicy = opts.motion;
++    this.trackSmoothing = opts.trackSmoothing;
+     this.scroller = new LumenVirtualScroller({
+       ...opts.scroller,
+       reducedMotion: this.reducedMotion,
+@@ -203,6 +214,43 @@ export class InteractionManager {
+         this.motionPolicy ? this.motionPolicy.mode !== 'continuous' : this.reducedMotion,
+       );
+     }
++    // P15: per-track driver smoothing (overrides the global scroller lerp
++    // for tracks that declare it). The motion policy forces 'none' under
++    // reveal/static so reduced motion always snaps.
++    if (this.trackSmoothing) {
++      const frames = Math.max(dt, 0) * 60;
++      const forceNone = this.motionPolicy !== undefined && this.motionPolicy.mode !== 'continuous';
++      for (const [trackId, cfg] of Object.entries(this.trackSmoothing)) {
++        const target = drivers[trackId];
++        if (target === undefined) continue;
++        const mode = forceNone ? 'none' : cfg.mode;
++        if (mode === 'none') {
++          this.smoothState.delete(trackId); // snap: raw value passes through
++          continue;
++        }
++        let st = this.smoothState.get(trackId);
++        if (!st) {
++          st = { pos: target, vel: 0 };
++          this.smoothState.set(trackId, st);
++        }
++        if (mode === 'lerp') {
++          const s = cfg.stiffness ?? 0.12;
++          const alpha = 1 - Math.pow(1 - s, frames);
++          st.pos += (target - st.pos) * alpha;
++        } else {
++          // Spring: semi-implicit Euler, frame-rate compensated vs 60fps.
++          const k = cfg.stiffness ?? 0.1;
++          const d = cfg.damping ?? 0.85;
++          st.vel = (st.vel + (target - st.pos) * k * frames) * Math.pow(d, frames);
++          st.pos += st.vel * frames;
++          if (Math.abs(target - st.pos) < 1e-6 && Math.abs(st.vel) < 1e-6) {
++            st.pos = target;
++            st.vel = 0;
++          }
++        }
++        drivers[trackId] = st.pos;
++      }
++    }
+     this.lastDrivers = drivers;
+     return drivers;
+   }
+diff --git a/packages/interaction/test/manager.test.mjs b/packages/interaction/test/manager.test.mjs
+index 4a81b33..e8867e1 100644
+--- a/packages/interaction/test/manager.test.mjs
++++ b/packages/interaction/test/manager.test.mjs
+@@ -97,3 +97,70 @@ test('static fallback binding stays pinned via manager', () => {
+   m.scroller.feedDelta(0.9);
+   assert.equal(m.update(1 / 60)['track-hero'], 0);
+ });
++
++// ---------- P15: per-track driver smoothing ----------
++
++const FRAME = 1 / 60;
++
++function smoothManager(smoothing) {
++  return new InteractionManager({
++    bindings: [scrollBinding()],
++    reducedMotion: false,
++    trackSmoothing: { 'track-hero': smoothing },
++  });
++}
++
++test('P15: mode none snaps (raw value passes through)', () => {
++  const m = smoothManager({ mode: 'none' });
++  m.scroller.feedDelta(0.5);
++  m.update(FRAME);
++  // Scroller itself smooths; per-track 'none' must not add more lag: the
++  // driver equals the scroller progress mapped to output range.
++  const drivers = m.update(FRAME);
++  assert.equal(drivers['track-hero'], m.scroller.progress * 12);
++});
++
++test('P15: lerp smoothing lags behind the raw driver', () => {
++  const m = smoothManager({ mode: 'lerp', stiffness: 0.1 });
++  m.scroller.feedDelta(1);
++  // Let the scroller converge fully first.
++  for (let i = 0; i < 400; i++) m.update(FRAME);
++  m.scroller.seek(0, { animate: false });
++  const d1 = m.update(FRAME)['track-hero'];
++  assert.ok(d1 > 0 && d1 < 12, `expected partial lerp, got ${d1}`);
++  for (let i = 0; i < 400; i++) m.update(FRAME);
++  assert.ok(Math.abs(m.update(FRAME)['track-hero']) < 1e-3);
++});
++
++test('P15: spring converges frame-rate-independently (60 vs 120 Hz)', () => {
++  const run = (hz) => {
++    const m = smoothManager({ mode: 'spring', stiffness: 0.1, damping: 0.85 });
++    m.scroller.seek(1, { animate: false });
++    const dt = 1 / hz;
++    for (let i = 0; i < hz * 2; i++) m.update(dt); // 2 simulated seconds
++    return m.update(dt)['track-hero'];
++  };
++  const at60 = run(60);
++  const at120 = run(120);
++  assert.ok(Math.abs(at60 - 12) < 0.5, `60Hz did not converge: ${at60}`);
++  assert.ok(Math.abs(at120 - 12) < 0.5, `120Hz did not converge: ${at120}`);
++  assert.ok(Math.abs(at60 - at120) < 0.5, `frame-rate dependent: ${at60} vs ${at120}`);
++});
++
++test('P15: motion policy forces mode none under reveal', () => {
++  const policy = {
++    mode: 'reveal',
++    advanceTime: (e, dt) => e + dt,
++    interpolate: (_c, t) => t,
++    quantizeScrub: (s) => s,
++    trackMode: () => 'reveal',
++  };
++  const m = new InteractionManager({
++    bindings: [scrollBinding()],
++    motion: policy,
++    trackSmoothing: { 'track-hero': { mode: 'spring' } },
++  });
++  m.scroller.seek(1, { animate: false });
++  const drivers = m.update(FRAME);
++  assert.equal(drivers['track-hero'], m.scroller.progress * 12); // snap, no spring lag
++});
+diff --git a/packages/runtime/src/engine.ts b/packages/runtime/src/engine.ts
+index 3120911..029b75b 100644
+--- a/packages/runtime/src/engine.ts
++++ b/packages/runtime/src/engine.ts
+@@ -230,6 +230,13 @@ export async function bootEngine(
+     bindings: ir.bindings,
+     reducedMotion,
+     motion: motionPolicy,
++    ...(ir.tracks.some((t) => t.smoothing !== undefined)
++      ? {
++          trackSmoothing: Object.fromEntries(
++            ir.tracks.filter((t) => t.smoothing !== undefined).map((t) => [t.id, t.smoothing!]),
++          ),
++        }
++      : {}),
+     onNavigate: (dir) => bus.emit(dir === 'next' ? 'scene:next' : 'scene:prev', {}),
+   });
+   interaction.attach(rootElement);
+diff --git a/packages/runtime/test/ir.test.mjs b/packages/runtime/test/ir.test.mjs
+index 976ecfd..fe80c4e 100644
+--- a/packages/runtime/test/ir.test.mjs
++++ b/packages/runtime/test/ir.test.mjs
+@@ -242,3 +242,17 @@ test('P1: unknown motion values are tolerated (validation stays structural)', ()
+   ir.tracks[0].motion = 'warp-9';
+   assert.equal(isSceneIR(ir), true); // ignored, not rejected
+ });
++
++// ---------- P15: smoothing/segments/bezier on the wire ----------
++
++test('P15: v1 doc without smoothing/segments validates; new fields tolerated', () => {
++  const ir = validIR();
++  assert.equal(isSceneIR(ir), true);
++  ir.tracks[0].smoothing = { mode: 'spring', stiffness: 0.1, damping: 0.85 };
++  ir.tracks[0].segments = [{ id: 's', from: 0, to: 5, keys: [{ t: 0, value: 0 }] }];
++  ir.tracks[0].keyframes = [{ t: 0, value: 0, easingBezier: [0.42, 0, 0.58, 1] }];
++  assert.equal(isSceneIR(ir), true);
++  const parsed = parseSceneIR(ir);
++  assert.equal(parsed.tracks[0].smoothing.mode, 'spring');
++  assert.equal(parsed.tracks[0].segments.length, 1);
++});
+diff --git a/packages/scene/src/index.ts b/packages/scene/src/index.ts
+index 6d57c4e..32f120a 100644
+--- a/packages/scene/src/index.ts
++++ b/packages/scene/src/index.ts
+@@ -12,6 +12,7 @@ export {
+   evaluateTrack,
+   evaluateTrackAtProgress,
+   interpolateKeyframes,
++  resolveKeyframes,
+   resolvePlayhead,
+   type EvaluateOptions,
+   type LoopMode,
+diff --git a/packages/scene/src/timeline.ts b/packages/scene/src/timeline.ts
+index 32d6956..c19fcf2 100644
+--- a/packages/scene/src/timeline.ts
++++ b/packages/scene/src/timeline.ts
+@@ -102,6 +102,37 @@ export function resolvePlayhead(raw: number, range: readonly [number, number], l
+   return start + (wrapped <= span ? wrapped : period - wrapped);
+ }
+ 
++// Cache of flattened keyframe streams per track (P15). Graphs are static
++// post-raise, so the flattened stream never needs invalidation.
++const flattenedKeys = new WeakMap<TimelineTrack, Keyframe[]>();
++
++/**
++ * Flatten a track's reusable segments (P15) into its keyframe stream.
++ * Segment-local key t values in [0, 1] are scaled into the segment window
++ * [from, to]; merged with the track's inline keys and stably sorted by t
++ * (inline keys first on ties — deterministic merge order). Tracks without
++ * segments return their keyframes untouched (legacy path).
++ */
++export function resolveKeyframes(track: TimelineTrack): Keyframe[] {
++  const segments = track.segments;
++  if (!segments || segments.length === 0) return track.keyframes;
++  const cached = flattenedKeys.get(track);
++  if (cached) return cached;
++  const tagged: { key: Keyframe; order: number }[] = [];
++  track.keyframes.forEach((key, i) => tagged.push({ key, order: i }));
++  segments.forEach((seg, s) => {
++    const span = seg.to - seg.from;
++    seg.keys.forEach((k, i) => {
++      const t = seg.from + Math.min(Math.max(k.t, 0), 1) * span;
++      tagged.push({ key: { ...k, t }, order: track.keyframes.length + s * seg.keys.length + i });
++    });
++  });
++  tagged.sort((a, b) => a.key.t - b.key.t || a.order - b.order);
++  const flat = tagged.map((e) => e.key);
++  flattenedKeys.set(track, flat);
++  return flat;
++}
++
+ /**
+  * Evaluate a TimelineTrack at playhead position t.
+  * - Numbers lerp, numeric arrays lerp component-wise, strings switch discretely
+@@ -115,7 +146,7 @@ export function evaluateTrack(
+   t: number,
+   options: EvaluateOptions = {},
+ ): TrackValue | undefined {
+-  const keys = track.keyframes;
++  const keys = resolveKeyframes(track);
+   if (keys.length === 0) return undefined;
+   const time = resolvePlayhead(t, track.range, options.loop ?? 'none');
+ 
+@@ -145,7 +176,9 @@ export function interpolateKeyframes(
+ ): TrackValue {
+   const span = b.t - a.t;
+   const raw = span > 0 ? (time - a.t) / span : 0;
+-  const easing = easingOverride ?? a.easing ?? 'linear';
++  // P15: a binding-level override still wins; a wire bezier beats the named
++  // easing; absent both, legacy 'linear'.
++  const easing = easingOverride ?? a.easingBezier ?? a.easing ?? 'linear';
+   const t = Math.min(Math.max(applyEasing(easing, raw), 0), 1);
+ 
+   const va = a.value;
+diff --git a/packages/scene/test/timeline.test.mjs b/packages/scene/test/timeline.test.mjs
+index 905fd29..00e8d63 100644
+--- a/packages/scene/test/timeline.test.mjs
++++ b/packages/scene/test/timeline.test.mjs
+@@ -1,6 +1,6 @@
+ import assert from 'node:assert/strict';
+ import { test } from 'node:test';
+-import { applyEasing, cubicBezierEase, evaluateTrack, evaluateTrackAtProgress, resolvePlayhead } from '../dist/timeline.js';
++import { applyEasing, cubicBezierEase, evaluateTrack, evaluateTrackAtProgress, resolveKeyframes, resolvePlayhead } from '../dist/timeline.js';
+ 
+ const track = (keyframes, overrides = {}) => ({
+   id: 'tr',
+@@ -105,3 +105,73 @@ test('progress scrubbing maps [0,1] onto range', () => {
+ test('empty track evaluates to undefined', () => {
+   assert.equal(evaluateTrack(track([]), 5), undefined);
+ });
++
++// ---------- P15: keyframe bezier + segments ----------
++
++test('P15: easingBezier keyframe matches cubicBezierEase reference', () => {
++  const bez = [0.42, 0, 0.58, 1];
++  const tr = track([
++    { t: 0, value: 0, easingBezier: bez },
++    { t: 10, value: 100 },
++  ]);
++  for (const time of [0, 2.5, 5, 7.5, 10]) {
++    const expected = 100 * cubicBezierEase(bez, time / 10);
++    assert.ok(Math.abs(evaluateTrack(tr, time) - expected) < 1e-9, `t=${time}`);
++  }
++});
++
++test('P15: easingBezier beats the named easing on the same keyframe', () => {
++  const bez = [0.42, 0, 0.58, 1];
++  const tr = track([
++    { t: 0, value: 0, easing: 'step', easingBezier: bez },
++    { t: 10, value: 100 },
++  ]);
++  assert.ok(Math.abs(evaluateTrack(tr, 5) - 50) < 1e-9); // bezier, not step
++});
++
++test('P15: binding-level easing override still beats keyframe bezier', () => {
++  const bez = [0.42, 0, 0.58, 1];
++  const tr = track([
++    { t: 0, value: 0, easingBezier: bez },
++    { t: 10, value: 100 },
++  ]);
++  // easing override 'linear' via EvaluateOptions (what binding.ts passes).
++  assert.equal(evaluateTrack(tr, 5, { easing: 'linear' }), 50);
++});
++
++test('P15: segments flatten into the keyframe stream', () => {
++  const tr = track([{ t: 0, value: 0 }], {
++    segments: [{ id: 'pulse', from: 2, to: 6, keys: [{ t: 0, value: 0 }, { t: 0.5, value: 10 }, { t: 1, value: 0 }] }],
++  });
++  assert.equal(evaluateTrack(tr, 2), 0);
++  assert.equal(evaluateTrack(tr, 4), 10);
++  assert.equal(evaluateTrack(tr, 6), 0);
++  assert.equal(evaluateTrack(tr, 3), 5); // lerped inside the segment
++});
++
++test('P15: segment + inline keys merge order is deterministic', () => {
++  const mk = () =>
++    track([{ t: 4, value: 99 }], {
++      segments: [{ id: 's', from: 0, to: 10, keys: [{ t: 0.4, value: 1 }] }],
++    });
++  // Tie at t=4: inline key sorts first (stable, inline-before-segment).
++  const a = evaluateTrack(mk(), 4);
++  const b = evaluateTrack(mk(), 4);
++  assert.equal(a, b);
++  assert.equal(a, 99);
++});
++
++test('P15: flattened stream is cached per track', () => {
++  const tr = track([{ t: 0, value: 0 }], {
++    segments: [{ id: 's', from: 0, to: 10, keys: [{ t: 1, value: 5 }] }],
++  });
++  evaluateTrack(tr, 5);
++  tr.segments[0].keys[0].value = 999; // mutate after first evaluation
++  assert.equal(evaluateTrack(tr, 10), 5); // cached flatten, graphs static post-raise
++});
++
++test('P15: track without segments keeps the legacy sparse-keyframe path', () => {
++  const keys = [{ t: 0, value: 0 }, { t: 10, value: 10 }];
++  const tr = track(keys);
++  assert.equal(resolveKeyframes(tr), keys); // identity, no copy
++});
+```
+
+## P5 — camera tracks actually drive the camera (`7fafabc`)
+
+```diff
+diff --git a/packages/runtime/src/camera.ts b/packages/runtime/src/camera.ts
+new file mode 100644
+index 0000000..29edc4e
+--- /dev/null
++++ b/packages/runtime/src/camera.ts
+@@ -0,0 +1,77 @@
++/**
++ * @lumen/runtime — camera resolution (P5).
++ *
++ * Camera tracks bind to a 'camera' scene node like any other transform
++ * track; after bindings are applied and world transforms updated, the
++ * camera node's world transform drives `RenderFrame.camera`. Scenes without
++ * a camera node get the byte-identical DEFAULT_CAMERA.
++ *
++ * Target derivation: optional `meta.lookAt: Vec3` on the camera node wins;
++ * otherwise the target is `position + forward(rotationQuat)` with forward
++ * being the -Z axis rotated by the world quaternion (matching the default
++ * camera at z=+5 looking at the origin).
++ */
++
++import type { CameraState, Quat, SceneNode, Vec3 } from '@lumen/contracts';
++
++/**
++ * Depth-first search for the first 'camera' node. Graphs are static
++ * post-raise, so callers memoize the result at boot (R3: no per-frame DFS).
++ */
++export function findFirstCameraNodeId(roots: readonly SceneNode[]): string | undefined {
++  for (const node of roots) {
++    if (node.kind === 'camera') return node.id;
++    const found = findFirstCameraNodeId(node.children);
++    if (found !== undefined) return found;
++  }
++  return undefined;
++}
++
++/** Rotate v by quaternion q (assumed unit, as produced by the scene graph). */
++function quatRotate(q: Quat, v: Vec3): Vec3 {
++  const [qx, qy, qz, qw] = q;
++  const [x, y, z] = v;
++  // t = 2 * q.xyz × v
++  const tx = 2 * (qy * z - qz * y);
++  const ty = 2 * (qz * x - qx * z);
++  const tz = 2 * (qx * y - qy * x);
++  return [
++    x + qw * tx + (qy * tz - qz * ty),
++    y + qw * ty + (qz * tx - qx * tz),
++    z + qw * tz + (qx * ty - qy * tx),
++  ];
++}
++
++function isVec3(v: unknown): v is Vec3 {
++  return Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number');
++}
++
++export interface CameraResolutionContext {
++  /** World transform of the camera node this frame, when one exists. */
++  world: { position: Vec3; rotationQuat: Quat } | undefined;
++  /** The camera node itself (for meta.lookAt), when one exists. */
++  node: SceneNode | undefined;
++  /** Fallback camera used when no camera node exists. */
++  defaultCamera: CameraState;
++}
++
++/**
++ * Resolve the RenderFrame camera for this frame. No camera node ⇒ the exact
++ * `defaultCamera` reference (byte-identical frames for camera-less scenes).
++ */
++export function resolveCamera(ctx: CameraResolutionContext): CameraState {
++  const { world, node, defaultCamera } = ctx;
++  if (!world || !node) return defaultCamera;
++  const lookAt = node.meta?.['lookAt'];
++  const target: Vec3 = isVec3(lookAt)
++    ? [lookAt[0], lookAt[1], lookAt[2]]
++    : ((): Vec3 => {
++        const f = quatRotate(world.rotationQuat, [0, 0, -1]);
++        return [world.position[0] + f[0], world.position[1] + f[1], world.position[2] + f[2]];
++      })();
++  return {
++    ...defaultCamera,
++    position: [world.position[0], world.position[1], world.position[2]],
++    target,
++  };
++}
+diff --git a/packages/runtime/src/engine.ts b/packages/runtime/src/engine.ts
+index 029b75b..3ea7c95 100644
+--- a/packages/runtime/src/engine.ts
++++ b/packages/runtime/src/engine.ts
+@@ -53,6 +53,7 @@ import {
+   type SceneIR,
+ } from './ir.js';
+ import { createMotionPolicy } from './motion.js';
++import { findFirstCameraNodeId, resolveCamera } from './camera.js';
+ import { collectScrubTargets, createScrubber } from './scrub.js';
+ 
+ /** Options accepted by bootEngine(). */
+@@ -139,6 +140,10 @@ export async function bootEngine(
+   const bus = kernel.bus;
+   const composed = composedSceneFromIR(ir);
+   const scene = createSceneRuntime(composed);
++  // P5: resolve the active scene's first camera node once at boot (R3:
++  // graphs are static post-raise, so no per-frame DFS).
++  const cameraNodeId = findFirstCameraNodeId(scene.graph.roots);
++  const cameraNode = cameraNodeId ? scene.graph.find(cameraNodeId) : undefined;
+ 
+   // --- Assets: manifest synth + preload wired to the kernel bus. -----------
+   const assets = createAssetManager();
+@@ -298,9 +303,19 @@ export async function bootEngine(
+       for (const root of scene.graph.roots) visit(root, true);
+       drawList.sort((a, b) => a.layer - b.layer);
+ 
++      // P5: a bound camera node drives frame.camera; camera-less scenes get
++      // the byte-identical DEFAULT_CAMERA. Under a reveal/static motion
++      // policy the camera track playheads are already snapped by the policy.
++      const camWorld = cameraNodeId ? scene.graph.getWorldTransform(cameraNodeId) : undefined;
++      const camera: CameraState = resolveCamera({
++        world: camWorld,
++        node: cameraNode,
++        defaultCamera: DEFAULT_CAMERA,
++      });
++
+       const renderFrame: RenderFrame = {
+         time: elapsed,
+-        camera: DEFAULT_CAMERA,
++        camera,
+         drawList,
+         post: quality.getLevel().postPasses.map((name) => ({ name })),
+         clearColor: [0, 0, 0, 1],
+diff --git a/packages/runtime/src/index.ts b/packages/runtime/src/index.ts
+index b96651a..b000268 100644
+--- a/packages/runtime/src/index.ts
++++ b/packages/runtime/src/index.ts
+@@ -16,6 +16,11 @@ export {
+   type IRTrack,
+   type SceneIR,
+ } from './ir.js';
++export {
++  findFirstCameraNodeId,
++  resolveCamera,
++  type CameraResolutionContext,
++} from './camera.js';
+ export {
+   createMotionPolicy,
+   type MotionMode,
+diff --git a/packages/runtime/test/camera.test.mjs b/packages/runtime/test/camera.test.mjs
+new file mode 100644
+index 0000000..b754b84
+--- /dev/null
++++ b/packages/runtime/test/camera.test.mjs
+@@ -0,0 +1,139 @@
++/**
++ * P5 — camera tracks drive RenderFrame.camera.
++ * Run against compiled dist: `node --test test/camera.test.mjs`.
++ */
++import test from 'node:test';
++import assert from 'node:assert/strict';
++
++import { createSceneRuntime, applyBindings, resolvePlayheads } from '@lumen/scene';
++import { findFirstCameraNodeId, resolveCamera } from '../dist/index.js';
++
++const DEFAULT_CAMERA = {
++  position: [0, 0, 5],
++  target: [0, 0, 0],
++  up: [0, 1, 0],
++  fov: 50,
++  near: 0.1,
++  far: 100,
++};
++
++const tf = (position = [0, 0, 0]) => ({
++  position,
++  rotationQuat: [0, 0, 0, 1],
++  scale: [1, 1, 1],
++});
++
++const camNode = (over = {}) => ({
++  id: 'cam-1',
++  kind: 'camera',
++  transform: tf(),
++  layer: 0,
++  visible: true,
++  bindings: [{ trackId: 'trk-cam', property: 'transform.position' }],
++  children: [],
++  ...over,
++});
++
++const camTrack = {
++  id: 'trk-cam',
++  target: 'cam-1',
++  driver: 'time',
++  range: [0, 2],
++  keyframes: [
++    { t: 0, value: [0, 0, 5] },
++    { t: 2, value: [10, 4, 5] },
++  ],
++};
++
++function makeScene(nodeOverrides, tracks = [camTrack]) {
++  return createSceneRuntime({
++    sceneGraph: [camNode(nodeOverrides)],
++    tracks,
++    bindings: [],
++    hydration: { ssr: false, islands: [] },
++  });
++}
++
++test('no camera node ⇒ DEFAULT_CAMERA identity (same values)', () => {
++  const scene = createSceneRuntime({
++    sceneGraph: [{ ...camNode(), id: 'g', kind: 'group', bindings: [] }],
++    tracks: [],
++    bindings: [],
++    hydration: { ssr: false, islands: [] },
++  });
++  const id = findFirstCameraNodeId(scene.graph.roots);
++  assert.equal(id, undefined);
++  const cam = resolveCamera({ world: undefined, node: undefined, defaultCamera: DEFAULT_CAMERA });
++  assert.equal(cam, DEFAULT_CAMERA); // identical reference → byte-identical frames
++});
++
++test('camera node with position binding drives the frame camera', () => {
++  const scene = makeScene();
++  const id = findFirstCameraNodeId(scene.graph.roots);
++  assert.equal(id, 'cam-1');
++  const node = scene.graph.find(id);
++  for (const [playhead, expected] of [
++    [0, [0, 0, 5]],
++    [1, [5, 2, 5]],
++    [2, [10, 4, 5]],
++  ]) {
++    const playheads = resolvePlayheads(scene.tracks, playhead, {});
++    applyBindings(scene.graph, scene.tracks, playheads);
++    scene.graph.updateWorldTransforms();
++    const cam = resolveCamera({
++      world: scene.graph.getWorldTransform(id),
++      node,
++      defaultCamera: DEFAULT_CAMERA,
++    });
++    assert.deepEqual(cam.position, expected);
++    // identity quat ⇒ target = position + forward(-Z)
++    assert.deepEqual(cam.target, [expected[0], expected[1], expected[2] - 1]);
++    assert.equal(cam.fov, DEFAULT_CAMERA.fov);
++  }
++});
++
++test('meta.lookAt overrides the quat-forward target', () => {
++  const scene = makeScene({ meta: { lookAt: [1, 2, 3] } });
++  const id = findFirstCameraNodeId(scene.graph.roots);
++  const cam = resolveCamera({
++    world: { position: [4, 5, 6], rotationQuat: [0, 0, 0, 1] },
++    node: scene.graph.find(id),
++    defaultCamera: DEFAULT_CAMERA,
++  });
++  assert.deepEqual(cam.target, [1, 2, 3]);
++  assert.deepEqual(cam.position, [4, 5, 6]);
++});
++
++test('quat-rotated camera targets position + rotated forward', () => {
++  // 180° yaw around Y ⇒ forward becomes +Z.
++  const scene = makeScene();
++  const node = scene.graph.find('cam-1');
++  const cam = resolveCamera({
++    world: { position: [0, 0, 5], rotationQuat: [0, 1, 0, 0] },
++    node,
++    defaultCamera: DEFAULT_CAMERA,
++  });
++  assert.ok(Math.abs(cam.target[2] - 6) < 1e-9);
++  assert.ok(Math.abs(cam.target[0]) < 1e-9);
++});
++
++test('two camera nodes ⇒ first DFS wins and lookup is cached', () => {
++  const second = camNode({ id: 'cam-2', bindings: [] });
++  const scene = createSceneRuntime({
++    sceneGraph: [camNode({ bindings: [] }), second],
++    tracks: [],
++    bindings: [],
++    hydration: { ssr: false, islands: [] },
++  });
++  // One boot-time traversal; the result is reused for all N frames.
++  const id = findFirstCameraNodeId(scene.graph.roots);
++  assert.equal(id, 'cam-1');
++  for (let i = 0; i < 5; i++) {
++    const cam = resolveCamera({
++      world: scene.graph.getWorldTransform(id),
++      node: scene.graph.find(id),
++      defaultCamera: DEFAULT_CAMERA,
++    });
++    assert.deepEqual(cam.position, [0, 0, 0]);
++  }
++});
+```
+
+## P11 — DOM layer richness (`f4b4417`)
+
+```diff
+diff --git a/contracts/src/ir.ts b/contracts/src/ir.ts
+index f7b2160..1ad68a0 100644
+--- a/contracts/src/ir.ts
++++ b/contracts/src/ir.ts
+@@ -9,7 +9,7 @@
+  * update of codegen's lowering and runtime's raising.
+  */
+ 
+-import type { ComposedScene, SceneNode, TimelineTrack } from './scene.js';
++import type { ComposedScene, SceneNode, TimelineTrack, Vec3 } from './scene.js';
+ import type { EngineConfig } from './config.js';
+ import type { InteractionBinding } from './interaction.js';
+ import type { ThemeTokens } from './templates.js';
+@@ -28,6 +28,12 @@ export interface IRNode {
+   assetId?: string;
+   /** HTML fragment for dom nodes. */
+   html?: string;
++  /** Optional 3D anchor for dom nodes (P11; was previously dropped). */
++  anchor?: Vec3;
++  /** Optional explicit CSS rect for dom nodes (P11). */
++  rect?: { x: number; y: number; width: number; height: number };
++  /** Optional stacking-context group for dom nodes (P11). */
++  layerGroup?: string;
+   /** Whether a video-plane is scrubbed by a track. */
+   scrubbed?: boolean;
+   /** Timeline property bindings attached to this node. */
+diff --git a/contracts/src/scene.ts b/contracts/src/scene.ts
+index 7112644..8a4642d 100644
+--- a/contracts/src/scene.ts
++++ b/contracts/src/scene.ts
+@@ -56,6 +56,19 @@ export interface DomPayload {
+   html: string;
+   /** Optional 3D anchor position; node projects to screen space. */
+   anchor?: Vec3;
++  /**
++   * Optional explicit CSS rect (P11). When present the DOM renderer uses it
++   * verbatim instead of deriving a rect from the surface size and world
++   * position; bindings may animate `payload.rect.width` etc. via setByPath.
++   */
++  rect?: { x: number; y: number; width: number; height: number };
++  /**
++   * Optional stacking-context group name (P11). Elements naming the same
++   * group are parented to a shared absolutely-positioned group div whose
++   * z-index is the group's minimum layer; element z-index becomes
++   * group-relative. Absent = flat overlay (legacy behavior).
++   */
++  layerGroup?: string;
+ }
+ 
+ /** Payload for 'video-plane' nodes. */
+diff --git a/packages/codegen/src/ir.ts b/packages/codegen/src/ir.ts
+index 8ffc654..7e7e562 100644
+--- a/packages/codegen/src/ir.ts
++++ b/packages/codegen/src/ir.ts
+@@ -93,6 +93,10 @@ function lowerNode(node: SceneNode): IRNode {
+     if ('assetId' in payload) ir.assetId = payload.assetId;
+     if ('html' in payload) ir.html = payload.html;
+     if ('scrubbed' in payload) ir.scrubbed = payload.scrubbed;
++    // P11: dom payload richness — anchor was previously dropped on the wire.
++    if ('anchor' in payload && payload.anchor !== undefined) ir.anchor = payload.anchor;
++    if ('rect' in payload && payload.rect !== undefined) ir.rect = payload.rect;
++    if ('layerGroup' in payload && payload.layerGroup !== undefined) ir.layerGroup = payload.layerGroup;
+   }
+   return ir;
+ }
+diff --git a/packages/rendering/src/frame-adapter.ts b/packages/rendering/src/frame-adapter.ts
+index 24a6300..2c4e3f8 100644
+--- a/packages/rendering/src/frame-adapter.ts
++++ b/packages/rendering/src/frame-adapter.ts
+@@ -24,11 +24,50 @@ function nodeOpacity(node: SceneNode): number {
+   return typeof opacity === 'number' ? opacity : 1;
+ }
+ 
+-/** CSS transform for the non-translation part of a world transform. */
++/** True when a quaternion is (numerically) the identity rotation. */
++function quatIsIdentity(q: Transform['rotationQuat']): boolean {
++  return q[0] === 0 && q[1] === 0 && q[2] === 0 && q[3] === 1;
++}
++
++/** Round for stable, compact CSS output. */
++function cssNum(n: number): number {
++  return Math.abs(n) < 1e-12 ? 0 : Math.round(n * 1e6) / 1e6;
++}
++
++/**
++ * CSS transform for the non-translation part of a world transform (P11).
++ * Identity rotation keeps the legacy `scale(x, y)` string bit-for-bit;
++ * any non-identity quaternion emits a full `matrix3d(...)` so rotations
++ * reach CSS. Column-major order as required by CSS matrix3d.
++ */
+ function cssTransform(t: Transform): string | undefined {
+-  const [sx, sy] = t.scale;
+-  if (sx === 1 && sy === 1) return undefined;
+-  return `scale(${sx}, ${sy})`;
++  const [sx, sy, sz] = t.scale;
++  const q = t.rotationQuat;
++  if (quatIsIdentity(q)) {
++    if (sx === 1 && sy === 1) return undefined;
++    return `scale(${sx}, ${sy})`;
++  }
++  const [x, y, z, w] = q;
++  const x2 = x + x;
++  const y2 = y + y;
++  const z2 = z + z;
++  const xx = x * x2;
++  const xy = x * y2;
++  const xz = x * z2;
++  const yy = y * y2;
++  const yz = y * z2;
++  const zz = z * z2;
++  const wx = w * x2;
++  const wy = w * y2;
++  const wz = w * z2;
++  // Rotation matrix scaled per-column (M = R * S), column-major for CSS.
++  const m = [
++    (1 - (yy + zz)) * sx, (xy + wz) * sx, (xz - wy) * sx, 0,
++    (xy - wz) * sy, (1 - (xx + zz)) * sy, (yz + wx) * sy, 0,
++    (xz + wy) * sz, (yz - wx) * sz, (1 - (xx + yy)) * sz, 0,
++    0, 0, 0, 1,
++  ];
++  return `matrix3d(${m.map(cssNum).join(', ')})`;
+ }
+ 
+ /**
+@@ -41,7 +80,18 @@ export function drawCallForNode(
+   world: Transform,
+   surface: SurfaceSize,
+ ): DrawCall | null {
+-  const rect = {
++  // P11 rect policy: an explicit payload rect wins; fall back to the
++  // surface-minus-position derivation only when absent.
++  const domPayload = node.payload as
++    | {
++        html?: string;
++        assetId?: string;
++        rect?: { x: number; y: number; width: number; height: number };
++        layerGroup?: string;
++        material?: Record<string, unknown>;
++      }
++    | undefined;
++  const rect = domPayload?.rect ?? {
+     x: world.position[0],
+     y: world.position[1],
+     width: Math.max(0, surface.width - world.position[0]),
+@@ -54,11 +104,12 @@ export function drawCallForNode(
+         layer: node.layer,
+         payload: {
+           kind: 'dom',
+-          html: (node.payload as { html?: string } | undefined)?.html ?? '',
++          html: domPayload?.html ?? '',
+           rect,
+           opacity: nodeOpacity(node),
+           transform: cssTransform(world),
+           visible: node.visible,
++          layerGroup: domPayload?.layerGroup,
+         },
+       };
+     case 'video-plane':
+diff --git a/packages/rendering/src/renderer-dom.ts b/packages/rendering/src/renderer-dom.ts
+index 9053ae9..6865e98 100644
+--- a/packages/rendering/src/renderer-dom.ts
++++ b/packages/rendering/src/renderer-dom.ts
+@@ -47,6 +47,8 @@ interface DomDrawPayload {
+   opacity?: number;
+   transform?: string;
+   visible?: boolean;
++  /** P11 stacking-context group; absent = appended to root (legacy). */
++  layerGroup?: string;
+ }
+ 
+ interface PooledElement {
+@@ -140,6 +142,8 @@ export class DomRenderer implements IRenderer {
+ 
+   private root: HTMLElement | null = null;
+   private pool: ElementPool<PooledElement> | null = null;
++  /** P11 pooled stacking contexts: lazily-created group divs keyed by name. */
++  private readonly layerGroups = new Map<string, HTMLElement>();
+   private width = 0;
+   private height = 0;
+   private dpr = 1;
+@@ -190,11 +194,39 @@ export class DomRenderer implements IRenderer {
+         p.htmlCache = null;
+         p.lastCss = '';
+         p.el.style.display = 'none';
+-        if (p.el.parentElement === root) root.removeChild(p.el);
++        if (p.el.parentElement !== null) p.el.parentElement.removeChild(p.el);
+       },
+     );
+   }
+ 
++  /**
++   * P11: return (creating lazily) the stacking-context div for a layerGroup.
++   * The group's z-index tracks the minimum layer seen for the group so
++   * groups order as a unit beneath/above other groups and ungrouped elements
++   * keep their global layer z-index.
++   */
++  private groupDiv(name: string, layer: number): HTMLElement {
++    const root = this.root;
++    if (root === null) throw new RenderingError('RENDERER_NOT_INITIALIZED', 'DomRenderer used before init().', { backend: 'dom' });
++    let div = this.layerGroups.get(name);
++    if (div === undefined) {
++      div = document.createElement('div');
++      div.dataset.layerGroup = name;
++      Object.assign(div.style, {
++        position: 'absolute',
++        inset: '0',
++        pointerEvents: 'none',
++        zIndex: String(layer),
++      } satisfies Partial<CSSStyleDeclaration>);
++      root.appendChild(div);
++      this.layerGroups.set(name, div);
++    } else {
++      const current = Number(div.style.zIndex);
++      if (!Number.isNaN(current) && layer < current) div.style.zIndex = String(layer);
++    }
++    return div;
++  }
++
+   createTarget(_desc: RenderTargetDesc): RenderTargetHandle {
+     // The DOM backend composites through the browser; offscreen targets are
+     // no-ops represented by handles so caller code stays backend-agnostic.
+@@ -253,7 +285,10 @@ export class DomRenderer implements IRenderer {
+         el.style.transform =
+           `translate3d(${rect.x}px, ${rect.y}px, 0)` + (payload.transform ? ` ${payload.transform}` : '');
+       }
+-      if (el.parentElement !== root) root.appendChild(el);
++      // P11: grouped payloads parent into their stacking-context group div
++      // (zIndex becomes group-relative); ungrouped append to root as today.
++      const parentEl = payload.layerGroup !== undefined ? this.groupDiv(payload.layerGroup, call.layer) : root;
++      if (el.parentElement !== parentEl) parentEl.appendChild(el);
+       drawCalls += 1;
+     }
+ 
+diff --git a/packages/rendering/test/dom-transform.test.mjs b/packages/rendering/test/dom-transform.test.mjs
+index 3c66a1e..fd31a38 100644
+--- a/packages/rendering/test/dom-transform.test.mjs
++++ b/packages/rendering/test/dom-transform.test.mjs
+@@ -90,3 +90,77 @@ test('DomRenderer composes translate3d + scale in a single transform string', as
+ 
+   renderer.dispose();
+ });
++
++// --- P11: DOM layer richness ------------------------------------------------
++function rotatedCall(angleZ, layer = 1, payloadExtra = {}) {
++  const q = [0, 0, Math.sin(angleZ / 2), Math.cos(angleZ / 2)];
++  const node = {
++    id: 'nr',
++    kind: 'dom',
++    transform: { position: [0, 0, 0], rotationQuat: q, scale: [1, 1, 1] },
++    layer,
++    visible: true,
++    bindings: [],
++    children: [],
++    payload: { html: '<p>r</p>', ...payloadExtra },
++  };
++  const world = { position: [0, 0, 0], rotationQuat: q, scale: [1, 1, 1] };
++  return drawCallForNode(node, world, surface);
++}
++
++test('identity quat keeps the legacy scale() string (bit-for-bit)', () => {
++  const call = domCall(0, 0, 2);
++  assert.equal(call.payload.transform, 'scale(2, 2)');
++  assert.equal(call.payload.layerGroup, undefined);
++});
++
++test('non-identity rotationQuat emits matrix3d with cos/sin terms', () => {
++  const angle = Math.PI / 4;
++  const call = rotatedCall(angle);
++  const t = call.payload.transform;
++  assert.ok(t.startsWith('matrix3d('), `expected matrix3d, got ${t}`);
++  const cos = Math.cos(angle);
++  const sin = Math.sin(angle);
++  // Rotation-z matrix: m0=cos, m1=sin (column-major), within rounding.
++  const nums = t.slice('matrix3d('.length, -1).split(',').map((s) => Number(s.trim()));
++  assert.equal(nums.length, 16);
++  assert.ok(Math.abs(nums[0] - cos) < 1e-6);
++  assert.ok(Math.abs(nums[1] - sin) < 1e-6);
++  assert.ok(Math.abs(nums[4] + sin) < 1e-6);
++  assert.ok(Math.abs(nums[5] - cos) < 1e-6);
++});
++
++test('explicit payload rect is preferred over the surface-derived rect', () => {
++  const rect = { x: 5, y: 6, width: 100, height: 50 };
++  const call = rotatedCall(0, 1, { rect });
++  assert.deepEqual(call.payload.rect, rect);
++  // Absent rect: legacy derivation unchanged.
++  const legacy = rotatedCall(0);
++  assert.deepEqual(legacy.payload.rect, { x: 0, y: 0, width: 800, height: 600 });
++});
++
++test('grouped payloads parent to a stacking-context group div', async () => {
++  const renderer = new DomRenderer();
++  await renderer.init({});
++  renderer.resize(800, 600, 1);
++  const stats = { cpuMs: 0, gpuMsEstimate: 0, drawCalls: 0, overBudget: false };
++
++  const groupedA = rotatedCall(0, 20, { layerGroup: 'hero' });
++  groupedA.nodeId = 'a';
++  const groupedB = rotatedCall(0, 5, { layerGroup: 'hero' });
++  groupedB.nodeId = 'b';
++  const plain = domCall(1, 1, 1, 10);
++  plain.nodeId = 'c';
++
++  renderer.renderFrame(frame([groupedA, groupedB, plain]), stats);
++
++  const root = document.body.children[0];
++  const group = root.children.find((c) => c.dataset?.layerGroup === 'hero');
++  assert.ok(group, 'group div created');
++  assert.equal(group.style.zIndex, '5', 'group z-index = min layer of the group');
++  assert.equal(group.children.length, 2, 'both grouped elements parented to the group');
++  const ungrouped = root.children.find((c) => c.dataset?.layerGroup === undefined && c.innerHTML === '<p>hi</p>');
++  assert.ok(ungrouped, 'ungrouped element still appended to root');
++  assert.equal(ungrouped.style.zIndex, '10');
++  renderer.dispose();
++});
+diff --git a/packages/runtime/src/ir.ts b/packages/runtime/src/ir.ts
+index e371b08..5bb9872 100644
+--- a/packages/runtime/src/ir.ts
++++ b/packages/runtime/src/ir.ts
+@@ -95,6 +95,10 @@ function raiseNode(ir: IRNode): SceneNode {
+   switch (ir.kind) {
+     case 'dom':
+       payload = { html: ir.html ?? '' };
++      // P11: re-materialize the dom richness fields carried across the wire.
++      if (ir.anchor !== undefined) payload.anchor = ir.anchor;
++      if (ir.rect !== undefined) payload.rect = ir.rect;
++      if (ir.layerGroup !== undefined) payload.layerGroup = ir.layerGroup;
+       break;
+     case 'video-plane':
+       payload = { assetId: ir.assetId ?? '', scrubbed: ir.scrubbed ?? true };
+diff --git a/packages/runtime/test/ir.test.mjs b/packages/runtime/test/ir.test.mjs
+index fe80c4e..98b0e01 100644
+--- a/packages/runtime/test/ir.test.mjs
++++ b/packages/runtime/test/ir.test.mjs
+@@ -256,3 +256,64 @@ test('P15: v1 doc without smoothing/segments validates; new fields tolerated', (
+   assert.equal(parsed.tracks[0].smoothing.mode, 'spring');
+   assert.equal(parsed.tracks[0].segments.length, 1);
+ });
++
++// --- P11: dom payload richness round-trips lower -> raise -------------------
++{
++  const { lowerToIR } = await import('../../codegen/dist/index.js');
++  const { composedSceneFromIR } = await import('../dist/index.js');
++
++  const config = {
++    version: 3,
++    id: 'p11',
++    template: 'scroll-video',
++    meta: { title: 'P11', description: '', locale: 'en' },
++    theme: {},
++    assets: [],
++    scenes: [{ id: 's1', slot: 'main', nodes: [], a11y: { label: 'S1' } }],
++    interactions: [],
++    build: { target: 'static' },
++  };
++  const defaults = {
++    colors: {},
++    typeScale: {},
++    spacing: {},
++    motion: { standard: [0.4, 0, 0.2, 1], emphasized: [0.2, 0, 0, 1], duration: { fast: 150, slow: 600 } },
++  };
++  const domNode = {
++    id: 'd1',
++    kind: 'dom',
++    transform: { position: [0, 0, 0], rotationQuat: [0, 0, 0, 1], scale: [1, 1, 1] },
++    layer: 3,
++    visible: true,
++    bindings: [],
++    children: [],
++    payload: {
++      html: '<p>x</p>',
++      anchor: [1, 2, 3],
++      rect: { x: 10, y: 20, width: 300, height: 40 },
++      layerGroup: 'hero',
++    },
++  };
++  const scene = { sceneGraph: [domNode], tracks: [], bindings: [], hydration: { ssr: false, islands: [] } };
++
++  test('anchor/rect/layerGroup round-trip lower→raise', () => {
++    const ir = lowerToIR(config, defaults, scene);
++    const irNode = ir.nodes[0];
++    assert.deepEqual(irNode.anchor, [1, 2, 3]);
++    assert.deepEqual(irNode.rect, { x: 10, y: 20, width: 300, height: 40 });
++    assert.equal(irNode.layerGroup, 'hero');
++    const raised = composedSceneFromIR(ir);
++    assert.deepEqual(raised.sceneGraph[0].payload, domNode.payload);
++  });
++
++  test('absent richness fields stay absent (legacy payload unchanged)', () => {
++    const plain = { ...domNode, id: 'd2', payload: { html: '<p>y</p>' } };
++    const ir = lowerToIR(config, defaults, { ...scene, sceneGraph: [plain] });
++    const irNode = ir.nodes[0];
++    assert.equal('anchor' in irNode, false);
++    assert.equal('rect' in irNode, false);
++    assert.equal('layerGroup' in irNode, false);
++    const raised = composedSceneFromIR(ir);
++    assert.deepEqual(raised.sceneGraph[0].payload, { html: '<p>y</p>' });
++  });
++}
+```
+
+## P13 — decoupled quality ladder axes (`ee2a20b`)
+
+```diff
+diff --git a/packages/rendering/src/index.ts b/packages/rendering/src/index.ts
+index 0624a76..58fb11e 100644
+--- a/packages/rendering/src/index.ts
++++ b/packages/rendering/src/index.ts
+@@ -21,5 +21,11 @@ export {
+   FALLBACK_CHAIN,
+   type CreateRendererOptions,
+ } from './select.js';
+-export { AdaptiveQualityController, type AdaptiveQualityOptions } from './quality.js';
++export {
++  AdaptiveQualityController,
++  buildLadder,
++  LADDER_V1,
++  type AdaptiveQualityOptions,
++  type QualityRung,
++} from './quality.js';
+ export { drawCallForNode, drawCallsFromWorldState, type SurfaceSize } from './frame-adapter.js';
+diff --git a/packages/rendering/src/quality.ts b/packages/rendering/src/quality.ts
+index 5bace7b..216ef9d 100644
+--- a/packages/rendering/src/quality.ts
++++ b/packages/rendering/src/quality.ts
+@@ -27,24 +27,102 @@ export interface AdaptiveQualityOptions {
+   dprScaleBounds?: [number, number];
+   /** Optional cap on dprScale from the CapabilityProfile dpr envelope. */
+   maxDpr?: number;
++  /**
++   * P13: base ladder to expand (or use verbatim). Default: the expanded
++   * single-axis ladder generated from {@link LADDER_V1}. Pass `LADDER_V1`
++   * to restore the legacy 6-rung behavior exactly.
++   */
++  ladder?: readonly QualityRung[];
+ }
+ 
+-/** Discrete rung on the quality ladder. */
+-interface QualityRung {
++/** Discrete rung on the quality ladder (P13: decoupled axes). */
++export interface QualityRung {
+   dprScale: number;
+   msaa: 0 | 2 | 4 | 8;
+   shadowMapSize?: number;
++  /**
++   * Number of post passes kept (prefix of the configured pass list).
++   * `Infinity` keeps all configured passes.
++   */
++  postKeep: number;
+ }
+ 
+-const LADDER: readonly QualityRung[] = [
+-  { dprScale: 0.5, msaa: 0, shadowMapSize: 256 },
+-  { dprScale: 0.75, msaa: 0, shadowMapSize: 512 },
+-  { dprScale: 1.0, msaa: 2, shadowMapSize: 1024 },
+-  { dprScale: 1.25, msaa: 4, shadowMapSize: 1024 },
+-  { dprScale: 1.5, msaa: 4, shadowMapSize: 2048 },
+-  { dprScale: 2.0, msaa: 8, shadowMapSize: 2048 },
++/**
++ * The legacy 6-rung ladder (phase-3 behavior), exported as a preset so
++ * embedders can restore old behavior via `AdaptiveQualityOptions.ladder`.
++ * With the default dpr window its `getLevel()` outputs are identical to the
++ * historical index-based shedding (lowest rung sheds all post passes, the
++ * next keeps one, the rest keep all).
++ */
++export const LADDER_V1: readonly QualityRung[] = [
++  { dprScale: 0.5, msaa: 0, shadowMapSize: 256, postKeep: 0 },
++  { dprScale: 0.75, msaa: 0, shadowMapSize: 512, postKeep: 1 },
++  { dprScale: 1.0, msaa: 2, shadowMapSize: 1024, postKeep: Infinity },
++  { dprScale: 1.25, msaa: 4, shadowMapSize: 1024, postKeep: Infinity },
++  { dprScale: 1.5, msaa: 4, shadowMapSize: 2048, postKeep: Infinity },
++  { dprScale: 2.0, msaa: 8, shadowMapSize: 2048, postKeep: Infinity },
+ ];
+ 
++/** Standard MSAA descent steps, high → low. */
++const MSAA_STEPS: readonly (0 | 2 | 4 | 8)[] = [8, 4, 2, 0];
++
++function postCount(rung: QualityRung, configured: number): number {
++  return rung.postKeep === Infinity ? configured : Math.min(rung.postKeep, configured);
++}
++
++/**
++ * P13: expand a base ladder into a single-axis ladder. Between each adjacent
++ * pair of base rungs, intermediate rungs shed exactly one axis at a time in
++ * shed order: post passes (right-to-left, one per rung) → MSAA ↓ → shadow
++ * map ↓; the dpr step lands on the lower base rung itself. The base rungs
++ * remain as a subsequence of the result. `configuredPostPasses` resolves
++ * `postKeep: Infinity` ("keep all"); the controller passes the length of its
++ * configured pass list.
++ */
++export function buildLadder(
++  base: readonly QualityRung[] = LADDER_V1,
++  configuredPostPasses = 0,
++): readonly QualityRung[] {
++  // The base ladder is ordered low → high fidelity. For each adjacent pair
++  // (lo, hi) we compute the intermediate shed rungs top-down (post → msaa →
++  // shadow; the dpr step lands on `lo` itself), then emit them reversed so
++  // consecutive rungs in the output still differ in exactly one axis.
++  const out: QualityRung[] = [];
++  for (let i = 0; i < base.length; i += 1) {
++    const lo = base[i]!;
++    const hi = base[i + 1];
++    out.push(lo);
++    if (hi === undefined) break;
++    const shed: QualityRung[] = [];
++    const hiPost = postCount(hi, configuredPostPasses);
++    const loPost = Math.min(postCount(lo, configuredPostPasses), hiPost);
++    // 1. Post passes, one rung per dropped pass (right-to-left).
++    for (let k = hiPost - 1; k >= loPost; k -= 1) {
++      shed.push({ dprScale: hi.dprScale, msaa: hi.msaa, shadowMapSize: hi.shadowMapSize, postKeep: k });
++    }
++    // 2. MSAA, one step per rung down to the lower rung's value
++    //    (dpr/shadow held at the higher rung).
++    const hiMi = MSAA_STEPS.indexOf(hi.msaa);
++    const loMi = MSAA_STEPS.indexOf(lo.msaa);
++    if (hiMi !== -1 && loMi !== -1) {
++      for (let m = hiMi + 1; m <= loMi; m += 1) {
++        shed.push({ dprScale: hi.dprScale, msaa: MSAA_STEPS[m]!, shadowMapSize: hi.shadowMapSize, postKeep: loPost });
++      }
++    }
++    // 3. Shadow map, halving per rung down to the lower rung's value
++    //    (dpr held, msaa now at lower value); the dpr step then lands on
++    //    `lo` changing exactly one axis.
++    if (hi.shadowMapSize !== undefined && lo.shadowMapSize !== undefined && hi.shadowMapSize > lo.shadowMapSize) {
++      for (let s = hi.shadowMapSize / 2; s > lo.shadowMapSize; s /= 2) {
++        shed.push({ dprScale: hi.dprScale, msaa: lo.msaa, shadowMapSize: s, postKeep: loPost });
++      }
++      shed.push({ dprScale: hi.dprScale, msaa: lo.msaa, shadowMapSize: lo.shadowMapSize, postKeep: loPost });
++    }
++    for (let k = shed.length - 1; k >= 0; k -= 1) out.push(shed[k]!);
++  }
++  return out;
++}
++
+ export class AdaptiveQualityController {
+   private readonly budgetMs: number;
+   private readonly emaAlpha: number;
+@@ -53,6 +131,7 @@ export class AdaptiveQualityController {
+   private readonly upThreshold: number;
+   private readonly upStreakRequired: number;
+   private readonly allPostPasses: string[];
++  private readonly ladder: readonly QualityRung[];
+ 
+   private rungIndex: number;
+   private emaMs: number | null = null;
+@@ -67,11 +146,18 @@ export class AdaptiveQualityController {
+     this.upThreshold = opts.upThreshold ?? 0.7;
+     this.upStreakRequired = opts.upStreakRequired ?? 3;
+     this.allPostPasses = [...initialPostPasses];
++    // P13: a provided base ladder is used verbatim (preset escape hatch);
++    // otherwise the default base ladder expands into single-axis rungs.
++    this.ladder = opts.ladder ?? buildLadder(LADDER_V1, this.allPostPasses.length);
+ 
+     const [minScale, maxScale] = opts.dprScaleBounds ?? [0.5, 2.0];
+     const cap = Math.min(maxScale, opts.maxDpr ?? maxScale);
+-    const lo = Math.max(0, LADDER.findIndex((r) => r.dprScale >= minScale));
+-    const hiRaw = findLastIndex(LADDER, (r) => r.dprScale <= cap);
++    const lo = Math.max(0, this.ladder.findIndex((r) => r.dprScale >= minScale));
++    // Top of the window: the LAST rung within the dpr cap. Expanded ladders
++    // hold dpr across consecutive shed rungs ordered shed → base, so the
++    // last match is the full-fidelity base rung of the top allowed dpr group
++    // (identical to legacy behavior on single-dpr ladders like LADDER_V1).
++    const hiRaw = findLastIndex(this.ladder, (r) => r.dprScale <= cap);
+     const hi = hiRaw >= lo ? hiRaw : lo;
+     // Start at the top of the allowed window; the controller steps down fast
+     // if the device cannot sustain it.
+@@ -121,9 +207,9 @@ export class AdaptiveQualityController {
+ 
+   /** Current quality directives for IRenderer.setQuality. */
+   getLevel(): QualityLevel {
+-    const rung = LADDER[this.rungIndex] ?? LADDER[0]!;
+-    // Post passes shed first on the two lowest rungs, then all are enabled.
+-    const postPasses = this.rungIndex <= this.minRung ? [] : this.rungIndex === this.minRung + 1 ? this.allPostPasses.slice(0, 1) : [...this.allPostPasses];
++    const rung = this.ladder[this.rungIndex] ?? this.ladder[0]!;
++    // P13: post passes shed one at a time via the rung's postKeep count.
++    const postPasses = this.allPostPasses.slice(0, postCount(rung, this.allPostPasses.length));
+     const level: QualityLevel = { dprScale: rung.dprScale, msaa: rung.msaa, postPasses };
+     if (rung.shadowMapSize !== undefined) level.shadowMapSize = rung.shadowMapSize;
+     return level;
+diff --git a/packages/rendering/test/quality.test.mjs b/packages/rendering/test/quality.test.mjs
+index e94fa0e..a750f61 100644
+--- a/packages/rendering/test/quality.test.mjs
++++ b/packages/rendering/test/quality.test.mjs
+@@ -1,6 +1,6 @@
+ import { test } from 'node:test';
+ import assert from 'node:assert/strict';
+-import { AdaptiveQualityController } from '../dist/index.js';
++import { AdaptiveQualityController, buildLadder, LADDER_V1 } from '../dist/index.js';
+ 
+ const stats = (ms, overBudget = false) => ({ cpuMs: ms, gpuMsEstimate: ms, drawCalls: 1, overBudget });
+ 
+@@ -11,7 +11,9 @@ test('starts at highest allowed rung', () => {
+ });
+ 
+ test('steps down under sustained over-budget frames, respecting cooldown', () => {
+-  const c = new AdaptiveQualityController({ budgetMs: 16.7, cooldownMs: 500, emaAlpha: 1 });
++  // Legacy ladder preset: one step down moves dpr + msaa together (P13 keeps
++  // this exact behavior available via `ladder: LADDER_V1`).
++  const c = new AdaptiveQualityController({ budgetMs: 16.7, cooldownMs: 500, emaAlpha: 1, ladder: LADDER_V1 });
+   // First over-budget frame cannot step: cooldown measured from t=0.
+   assert.equal(c.update(stats(40), 0), false);
+   assert.equal(c.update(stats(40), 400), false); // still inside cooldown
+@@ -77,3 +79,95 @@ test('ema tracks frame time', () => {
+   c.update(stats(20), 100);
+   assert.ok(Math.abs(c.emaFrameMs - 12) < 1e-9); // 0.2*20 + 0.8*10
+ });
++
++// --- P13: decoupled quality ladder axes -------------------------------------
++
++test('expanded ladder contains LADDER_V1 as a subsequence with identical axes', () => {
++  const expanded = buildLadder(LADDER_V1, 2);
++  const want = LADDER_V1.map((r) => `${r.dprScale}|${r.msaa}|${r.shadowMapSize}`);
++  const got = expanded.map((r) => `${r.dprScale}|${r.msaa}|${r.shadowMapSize}`);
++  let i = 0;
++  for (const g of got) {
++    if (g === want[i]) i += 1;
++  }
++  assert.equal(i, want.length, 'base rungs appear in order');
++  assert.ok(expanded.length > LADDER_V1.length, 'ladder actually expanded');
++});
++
++test('consecutive rungs differ in exactly one axis', () => {
++  const expanded = buildLadder(LADDER_V1, 3);
++  const axis = (r) => [r.dprScale, r.msaa, r.shadowMapSize, Math.min(r.postKeep, 3)];
++  for (let i = 1; i < expanded.length; i += 1) {
++    const a = axis(expanded[i - 1]);
++    const b = axis(expanded[i]);
++    const diffs = a.filter((v, k) => v !== b[k]).length;
++    assert.equal(diffs, 1, `rungs ${i - 1}→${i} differ in ${diffs} axes: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
++  }
++});
++
++test('postKeep decreases by exactly one per post rung', () => {
++  const expanded = buildLadder(LADDER_V1, 3);
++  // Post shedding lives between LADDER_V1 rungs 1 (keep 1) and 2 (keep all),
++  // i.e. the dpr-1.0 group: one rung per dropped pass, then the base rung.
++  const postRungs = expanded
++    .filter((r) => r.dprScale === 1.0 && r.msaa === 2 && r.shadowMapSize === 1024)
++    .map((r) => Math.min(r.postKeep, 3));
++  assert.deepEqual(postRungs, [1, 2, 3]);
++});
++
++test('controller sheds exactly one axis per step under consecutive overruns', () => {
++  const c = new AdaptiveQualityController({ budgetMs: 16.7, cooldownMs: 0, emaAlpha: 1 }, ['bloom', 'grain', 'vignette']);
++  let prev = c.getLevel();
++  assert.deepEqual(prev.postPasses, ['bloom', 'grain', 'vignette']);
++  // Step 1 from the top: sheds MSAA only (8 → 4), dpr and post held — the
++  // LADDER_V1 top pair shares postKeep, so the first shed axis is MSAA.
++  assert.equal(c.update(stats(50), 0), true);
++  let cur = c.getLevel();
++  assert.equal(cur.msaa, 4);
++  assert.equal(cur.dprScale, prev.dprScale);
++  assert.deepEqual(cur.postPasses, prev.postPasses);
++  // Walk the whole ladder: every single step changes exactly one axis, and
++  // post passes shed one at a time somewhere along the way.
++  const axis = (l) => [l.dprScale, l.msaa, l.shadowMapSize, l.postPasses.length];
++  const postCounts = new Set([cur.postPasses.length]);
++  for (let t = 100; t <= 20000; t += 100) {
++    if (!c.update(stats(50), t)) continue;
++    prev = cur;
++    cur = c.getLevel();
++    const a = axis(prev);
++    const b = axis(cur);
++    assert.equal(a.filter((v, k) => v !== b[k]).length, 1, `one axis per step: ${a} → ${b}`);
++    postCounts.add(cur.postPasses.length);
++  }
++  assert.deepEqual([...postCounts].sort(), [0, 1, 2, 3], 'post shed one pass at a time');
++  assert.equal(c.rung, 0, 'reached the bottom rung');
++});
++
++test('LADDER_V1 preset reproduces legacy rung sequence and getLevel outputs', () => {
++  const legacy = new AdaptiveQualityController({ budgetMs: 16.7, cooldownMs: 0, emaAlpha: 1, ladder: LADDER_V1 }, ['bloom', 'grain']);
++  const seq = [legacy.getLevel()];
++  for (let t = 0; t <= 10000 && seq.length < 6; t += 100) {
++    if (legacy.update(stats(50), t)) seq.push(legacy.getLevel());
++  }
++  assert.deepEqual(
++    seq.map((l) => [l.dprScale, l.msaa, l.shadowMapSize]),
++    [
++      [2.0, 8, 2048],
++      [1.5, 4, 2048],
++      [1.25, 4, 1024],
++      [1.0, 2, 1024],
++      [0.75, 0, 512],
++      [0.5, 0, 256],
++    ],
++  );
++  // Legacy post shedding: bottom rung sheds all, next keeps one.
++  assert.deepEqual(seq[5].postPasses, []);
++  assert.deepEqual(seq[4].postPasses, ['bloom']);
++  assert.deepEqual(seq[3].postPasses, ['bloom', 'grain']);
++});
++
++test('window clamping with maxDpr is unchanged on the expanded ladder', () => {
++  const capped = new AdaptiveQualityController({ budgetMs: 16.7, maxDpr: 1.25 });
++  assert.equal(capped.getLevel().dprScale, 1.25);
++  assert.equal(capped.getLevel().msaa, 4, 'starts at the full-fidelity rung of the capped dpr');
++});
+```
+
+## P9 — unified scroll input path + restoration (`b29c0dd`)
+
+```diff
+diff --git a/packages/interaction/src/scroll.ts b/packages/interaction/src/scroll.ts
+index a3a978c..27764c4 100644
+--- a/packages/interaction/src/scroll.ts
++++ b/packages/interaction/src/scroll.ts
+@@ -28,6 +28,13 @@ export interface VirtualScrollerOptions {
+    * steps to snap boundaries). Absent ⇒ legacy boolean behavior, untouched.
+    */
+   motion?: MotionPolicy;
++  /**
++   * P9: when set (and `history`/`popstate` exist), settled progress is
++   * persisted via `history.replaceState` (throttled to one write per 500 ms)
++   * and restored on `popstate` through the same normalized write seam.
++   * Absent ⇒ no history interaction (legacy behavior).
++   */
++  restorationKey?: string;
+   /** Called whenever smoothed progress changes during update(). */
+   onProgress?: (progress: number) => void;
+ }
+@@ -45,6 +52,8 @@ export class LumenVirtualScroller implements VirtualScroller {
+   private reducedMotion: boolean;
+   private readonly policy?: MotionPolicy;
+   private readonly onProgress?: (p: number) => void;
++  private readonly restorationKey?: string;
++  private lastRestorationWriteAt = -Infinity;
+   private detachFns: Array<() => void> = [];
+ 
+   constructor(opts: VirtualScrollerOptions = {}) {
+@@ -55,6 +64,21 @@ export class LumenVirtualScroller implements VirtualScroller {
+     this.reducedMotion = opts.reducedMotion ?? false;
+     this.policy = opts.motion;
+     this.onProgress = opts.onProgress;
++    this.restorationKey = opts.restorationKey;
++    if (this.restorationKey !== undefined && typeof window !== 'undefined' && typeof history !== 'undefined') {
++      const onPopState = (ev: PopStateEvent) => {
++        const saved = (ev.state as { lumenScroll?: Record<string, unknown> } | null)?.lumenScroll?.[
++          this.restorationKey!
++        ];
++        if (typeof saved === 'number') {
++          // Re-feed through the single write seam; update() republishes via
++          // onProgress next frame (instantly under reduced motion).
++          this.setTargetFromNormalized(saved);
++        }
++      };
++      window.addEventListener('popstate', onPopState);
++      this.detachFns.push(() => window.removeEventListener('popstate', onPopState));
++    }
+   }
+ 
+   /** Effective reduced-motion flag: policy mode wins when a policy is injected. */
+@@ -80,6 +104,20 @@ export class LumenVirtualScroller implements VirtualScroller {
+     this.snapPoints = [...points].sort((a, b) => a - b);
+   }
+ 
++  /**
++   * P9: single entry for ALL absolute progress writes (native scroll,
++   * history restoration). Converges with feedDelta on identical state
++   * transitions: same clamp, same reduced-motion fast path.
++   */
++  setTargetFromNormalized(p: number): void {
++    if (!this.enabled) return;
++    this.target = clamp01(p);
++    if (this.reduced) {
++      this.current = this.target;
++      this.onProgress?.(this.current);
++    }
++  }
++
+   /**
+    * Consume a raw scroll delta (in progress units; positive = scroll down).
+    * No-op while disabled. Applied to the target; smoothing happens in update().
+@@ -116,6 +154,7 @@ export class LumenVirtualScroller implements VirtualScroller {
+           this.target = snapped;
+           this.current = snapped;
+         }
++        this.persistForRestoration();
+       }
+     } else if (this.policy) {
+       // Policy-driven cut (reveal/static): identical to the legacy jump but
+@@ -126,6 +165,26 @@ export class LumenVirtualScroller implements VirtualScroller {
+     return this.current;
+   }
+ 
++  /**
++   * P9: persist settled progress for history restoration, at most once per
++   * 500 ms; a no-op without a restorationKey or history global.
++   */
++  private persistForRestoration(): void {
++    if (this.restorationKey === undefined) return;
++    if (typeof window === 'undefined' || typeof history === 'undefined') return;
++    const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
++    if (nowMs - this.lastRestorationWriteAt < 500) return;
++    this.lastRestorationWriteAt = nowMs;
++    try {
++      const state = (history.state ?? {}) as Record<string, unknown>;
++      const lumenScroll = { ...((state.lumenScroll as Record<string, number> | undefined) ?? {}) };
++      lumenScroll[this.restorationKey] = this.current;
++      history.replaceState({ ...state, lumenScroll }, '');
++    } catch {
++      // History APIs can throw (opaque origins, quota); restoration is best-effort.
++    }
++  }
++
+   private nearestSnap(p: number): number | undefined {
+     let best: number | undefined;
+     let bestDist = this.snapThreshold;
+@@ -160,15 +219,10 @@ export class LumenVirtualScroller implements VirtualScroller {
+   attach(el: HTMLElement): void {
+     if (typeof window === 'undefined') return;
+     const onScroll = () => {
+-      if (!this.enabled) return;
+       const max = el.scrollHeight - el.clientHeight;
+       if (max <= 0) return;
+-      const p = clamp01(el.scrollTop / max);
+-      this.target = p;
+-      if (this.reduced) {
+-        this.current = p;
+-        this.onProgress?.(p);
+-      }
++      // P9: native scroll converges on the same write seam as feedDelta.
++      this.setTargetFromNormalized(clamp01(el.scrollTop / max));
+     };
+     el.addEventListener('scroll', onScroll, { passive: true });
+     this.detachFns.push(() => el.removeEventListener('scroll', onScroll));
+diff --git a/packages/interaction/test/manager.test.mjs b/packages/interaction/test/manager.test.mjs
+index e8867e1..ba6c3d4 100644
+--- a/packages/interaction/test/manager.test.mjs
++++ b/packages/interaction/test/manager.test.mjs
+@@ -164,3 +164,28 @@ test('P15: motion policy forces mode none under reveal', () => {
+   const drivers = m.update(FRAME);
+   assert.equal(drivers['track-hero'], m.scroller.progress * 12); // snap, no spring lag
+ });
++
++test('P9: restored scroll progress appears in update() DriverMap', () => {
++  const prevWindow = globalThis.window;
++  const prevHistory = globalThis.history;
++  const listeners = {};
++  globalThis.window = {
++    addEventListener: (t, fn) => { listeners[t] = fn; },
++    removeEventListener: () => {},
++  };
++  globalThis.history = { state: null, replaceState() {} };
++  try {
++    const m = new InteractionManager({
++      bindings: [scrollBinding()],
++      reducedMotion: true,
++      scroller: { restorationKey: 'page' },
++    });
++    listeners.popstate({ state: { lumenScroll: { page: 0.5 } } });
++    const drivers = m.update(1 / 60);
++    assert.equal(drivers['track-hero'], 6, 'restored 0.5 progress drives the track (0.5 * 12)');
++    m.dispose?.();
++  } finally {
++    globalThis.window = prevWindow;
++    globalThis.history = prevHistory;
++  }
++});
+diff --git a/packages/interaction/test/scroll.test.mjs b/packages/interaction/test/scroll.test.mjs
+index 197d20e..df0b111 100644
+--- a/packages/interaction/test/scroll.test.mjs
++++ b/packages/interaction/test/scroll.test.mjs
+@@ -153,3 +153,121 @@ test('P1: policy supersedes the raw boolean', () => {
+   s.feedDelta(0.5);
+   assert.equal(s.progress, 0.5);
+ });
++
++// --- P9: unified scroll input + restoration ---------------------------------
++
++test('native-path write equals delta-path write for the same logical input', () => {
++  const viaDelta = new LumenVirtualScroller({ smoothing: 0.2 });
++  viaDelta.feedDelta(0.4); // wheelMultiplier 1 → target 0.4
++  const viaNative = new LumenVirtualScroller({ smoothing: 0.2 });
++  viaNative.setTargetFromNormalized(0.4);
++  assert.equal(viaNative.targetProgress, viaDelta.targetProgress);
++  for (let i = 0; i < 200; i++) {
++    viaDelta.update(FRAME);
++    viaNative.update(FRAME);
++  }
++  assert.equal(viaNative.progress, viaDelta.progress);
++});
++
++test('attach() onScroll routes through the same normalized write seam', () => {
++  const prevWindow = globalThis.window;
++  globalThis.window = { addEventListener() {}, removeEventListener() {} };
++  try {
++    const s = new LumenVirtualScroller({ smoothing: 0.2 });
++    let scrollHandler;
++    const el = {
++      scrollTop: 250,
++      scrollHeight: 1000,
++      clientHeight: 500, // max = 500 → p = 0.5
++      addEventListener: (_type, fn) => { scrollHandler = fn; },
++      removeEventListener() {},
++    };
++    s.attach(el);
++    scrollHandler();
++    assert.equal(s.targetProgress, 0.5);
++    const ref = new LumenVirtualScroller({ smoothing: 0.2 });
++    ref.feedDelta(0.5);
++    for (let i = 0; i < 200; i++) { s.update(FRAME); ref.update(FRAME); }
++    assert.equal(s.progress, ref.progress);
++    s.detach();
++  } finally {
++    globalThis.window = prevWindow;
++  }
++});
++
++test('reduced-motion jump parity between absolute and delta writes', () => {
++  const a = new LumenVirtualScroller({ reducedMotion: true });
++  a.setTargetFromNormalized(0.7);
++  const b = new LumenVirtualScroller({ reducedMotion: true });
++  b.feedDelta(0.7);
++  assert.equal(a.progress, b.progress);
++  a.setTargetFromNormalized(2); // clamped
++  assert.equal(a.progress, 1);
++});
++
++function withFakeHistory(fn) {
++  const prevWindow = globalThis.window;
++  const prevHistory = globalThis.history;
++  const writes = [];
++  const listeners = {};
++  globalThis.window = {
++    addEventListener: (t, fn2) => { listeners[t] = fn2; },
++    removeEventListener: (t) => { delete listeners[t]; },
++  };
++  globalThis.history = {
++    state: null,
++    replaceState: (state) => { writes.push(state); globalThis.history.state = state; },
++  };
++  try {
++    fn({ writes, listeners });
++  } finally {
++    globalThis.window = prevWindow;
++    globalThis.history = prevHistory;
++  }
++}
++
++test('restoration round-trip: settle writes state; popstate restores progress', () => {
++  withFakeHistory(({ writes, listeners }) => {
++    const s = new LumenVirtualScroller({ smoothing: 0.5, restorationKey: 'home' });
++    s.feedDelta(0.6);
++    for (let i = 0; i < 100; i++) s.update(FRAME);
++    assert.ok(writes.length >= 1, 'settle persisted state');
++    assert.equal(writes.at(-1).lumenScroll.home, 0.6);
++
++    // Navigate away, then simulate browser-back.
++    s.setTargetFromNormalized(0.1);
++    for (let i = 0; i < 100; i++) s.update(FRAME);
++    listeners.popstate({ state: { lumenScroll: { home: 0.6 } } });
++    assert.equal(s.targetProgress, 0.6);
++    let published;
++    const s2 = new LumenVirtualScroller({
++      smoothing: 0.5,
++      restorationKey: 'home',
++      onProgress: (p) => { published = p; },
++    });
++    void s2;
++    for (let i = 0; i < 100; i++) s.update(FRAME);
++    assert.equal(s.progress, 0.6);
++    s.detach();
++    assert.equal(listeners.popstate, undefined, 'popstate listener removed on detach');
++  });
++});
++
++test('restoration writes are throttled to one per 500 ms', () => {
++  withFakeHistory(({ writes }) => {
++    const s = new LumenVirtualScroller({ smoothing: 0.9, restorationKey: 'k' });
++    for (let n = 0; n < 5; n += 1) {
++      s.setTargetFromNormalized(0.1 * (n + 1));
++      s.update(FRAME); // converges within one frame at smoothing 0.9? no — settle needs |t-c|<1e-4
++      for (let i = 0; i < 60; i++) s.update(FRAME);
++    }
++    assert.ok(writes.length <= 1, `expected ≤1 write, got ${writes.length}`);
++  });
++});
++
++test('no history global ⇒ restoration is a no-op (no throw)', () => {
++  const s = new LumenVirtualScroller({ smoothing: 0.5, restorationKey: 'k' });
++  s.feedDelta(0.5);
++  for (let i = 0; i < 100; i++) s.update(FRAME);
++  assert.equal(s.progress, 0.5);
++});
+```
+
+## P4 — kernel visibility policy + longtask attribution (`52b281c`)
+
+```diff
+diff --git a/contracts/src/kernel.ts b/contracts/src/kernel.ts
+index cfac71a..0bc3132 100644
+--- a/contracts/src/kernel.ts
++++ b/contracts/src/kernel.ts
+@@ -64,6 +64,12 @@ export interface BudgetReport {
+   phase: string;
+   /** Configured per-frame budget in milliseconds. */
+   budgetMs: number;
++  /**
++   * P4: attribution. Undefined = scheduler-originated (legacy semantics);
++   * 'longtask' marks externally-attributed long tasks (>50 ms) observed via
++   * PerformanceObserver with `phase: 'external'`.
++   */
++  source?: 'scheduler' | 'longtask';
+ }
+ 
+ /**
+@@ -79,6 +85,8 @@ export interface EngineEventMap {
+   'lifecycle:leave': { phase: LifecyclePhase };
+   /** Scheduler frame overrun. */
+   'scheduler:budget-exceeded': BudgetReport;
++  /** P4: document visibility transitions (guarded; browser-only emission). */
++  'engine:visibility': { state: 'hidden' | 'visible' };
+   /** Contained module error from an error boundary. */
+   'engine:error': EngineError;
+   /** Asset preload progress. */
+diff --git a/packages/assets/src/index.ts b/packages/assets/src/index.ts
+index 122fc65..5bc0701 100644
+--- a/packages/assets/src/index.ts
++++ b/packages/assets/src/index.ts
+@@ -24,6 +24,7 @@ export {
+ 
+ export {
+   AssetPriorityQueue,
++  PreloadPauser,
+   buildQueue,
+   preload,
+   type AssetProgressPayload,
+diff --git a/packages/assets/src/manager.ts b/packages/assets/src/manager.ts
+index bb060a4..47b1d79 100644
+--- a/packages/assets/src/manager.ts
++++ b/packages/assets/src/manager.ts
+@@ -9,7 +9,7 @@ import type { AssetManifest, CapabilityProfile, LoadState } from '@lumen/contrac
+ import { contentHashKey, normalizeManifest, primaryUrl, resolveAssetUrl } from './manifest.js';
+ import type { AssetHandle } from './loader.js';
+ import { AssetCache } from './cache.js';
+-import { buildQueue, preload, type AssetProgressPayload, type PreloadResult } from './preload.js';
++import { buildQueue, preload, PreloadPauser, type AssetProgressPayload, type PreloadResult } from './preload.js';
+ 
+ export interface AssetManagerOptions {
+   /** CDN base prepended to manifest-relative URLs. */
+@@ -48,6 +48,7 @@ export class AssetManager {
+   private cache: AssetCache;
+   private opts: AssetManagerOptions = {};
+   private runController: AbortController | null = null;
++  private readonly pauser = new PreloadPauser();
+ 
+   constructor() {
+     this.cache = new AssetCache();
+@@ -67,6 +68,14 @@ export class AssetManager {
+     return this.manifest;
+   }
+ 
++  /**
++   * P4: pause/resume the preload queue driver (e.g. while the document is
++   * hidden). In-flight fetches continue; no new fetches dequeue while paused.
++   */
++  setPaused(on: boolean): void {
++    this.pauser.setPaused(on);
++  }
++
+   /** Current LoadState of an asset id ('queued' when unknown). */
+   state(id: string): LoadState {
+     return this.states.get(id) ?? 'queued';
+@@ -91,6 +100,7 @@ export class AssetManager {
+       ...(this.opts.cdnBase ? { cdnBase: this.opts.cdnBase } : {}),
+       ...(this.opts.concurrency !== undefined ? { concurrency: this.opts.concurrency } : {}),
+       signal: controller.signal,
++      pauser: this.pauser,
+       ...(fetchImpl ? { fetchImpl } : {}),
+       ...(this.opts.capabilities ? { capabilities: this.opts.capabilities } : {}),
+       emit: (payload) => {
+diff --git a/packages/assets/src/preload.ts b/packages/assets/src/preload.ts
+index 148e5f3..3a43908 100644
+--- a/packages/assets/src/preload.ts
++++ b/packages/assets/src/preload.ts
+@@ -36,6 +36,8 @@ export interface PreloadOptions extends Omit<LoadOptions, 'onState'> {
+   emit?: ProgressEmitter;
+   /** Internal per-asset completion hook (used by AssetManager to track states). */
+   onResult?: (result: PreloadResult) => void;
++  /** P4: optional pause gate; while paused no new fetches are dequeued. */
++  pauser?: PreloadPauser;
+ }
+ 
+ const PRIORITY_RANK: Record<PreloadStrategy, number> = { critical: 0, eager: 1, lazy: 2 };
+@@ -78,6 +80,34 @@ export class AssetPriorityQueue {
+   }
+ }
+ 
++/**
++ * P4: cooperative pause gate for preload runs. While paused no new fetches
++ * are dequeued; in-flight fetches continue (aborting wastes bytes).
++ */
++export class PreloadPauser {
++  private paused = false;
++  private waiters: Array<() => void> = [];
++
++  get isPaused(): boolean {
++    return this.paused;
++  }
++
++  setPaused(on: boolean): void {
++    if (this.paused === on) return;
++    this.paused = on;
++    if (!on) {
++      const waiters = this.waiters.splice(0);
++      for (const resolve of waiters) resolve();
++    }
++  }
++
++  /** Resolves immediately when unpaused; otherwise once resumed. */
++  waitWhilePaused(): Promise<void> {
++    if (!this.paused) return Promise.resolve();
++    return new Promise((resolve) => this.waiters.push(resolve));
++  }
++}
++
+ /** Build a queue from a manifest, optionally restricted to a subset of ids. */
+ export function buildQueue(manifest: AssetManifest, ids?: readonly string[]): AssetPriorityQueue {
+   const queue = new AssetPriorityQueue();
+@@ -118,6 +148,8 @@ export async function preload(
+ 
+   const worker = async (): Promise<void> => {
+     for (;;) {
++      if (options.signal?.aborted) return;
++      if (options.pauser) await options.pauser.waitWhilePaused();
+       if (options.signal?.aborted) return;
+       const next = queue.shift();
+       if (!next) return;
+diff --git a/packages/assets/test/preload.test.mjs b/packages/assets/test/preload.test.mjs
+index 95b8c1c..e5a81e2 100644
+--- a/packages/assets/test/preload.test.mjs
++++ b/packages/assets/test/preload.test.mjs
+@@ -1,6 +1,6 @@
+ import { test } from 'node:test';
+ import assert from 'node:assert/strict';
+-import { preload, buildQueue } from '../dist/preload.js';
++import { preload, buildQueue, PreloadPauser } from '../dist/preload.js';
+ import { normalizeManifest } from '../dist/manifest.js';
+ import { AssetManager } from '../dist/manager.js';
+ import { FIXTURE_MANIFEST } from './fixtures.mjs';
+@@ -148,3 +148,34 @@ test('AssetManager video asset reports a guarded environment error in Node', asy
+   assert.equal(results[0].error.name, 'UnsupportedEnvironmentError');
+   assert.equal(manager.state('intro'), 'error');
+ });
++
++// --- P4: pause/resume of the preload queue driver ----------------------------
++
++test('paused queue dequeues nothing; in-flight completes; resume continues in order', async () => {
++  const manifest = imageManifest(4, ['critical', 'eager', 'eager', 'lazy']);
++  const { fetchImpl, stats } = makeTrackingFetch();
++  const pauser = new PreloadPauser();
++  const queue = buildQueue(manifest);
++  pauser.setPaused(true);
++  const run = preload(queue, { concurrency: 2, fetchImpl, pauser });
++  await new Promise((r) => setTimeout(r, 20));
++  assert.equal(stats().started.length, 0, 'nothing dequeued while paused');
++  pauser.setPaused(false);
++  const results = await run;
++  assert.equal(results.filter((r) => r.status === 'ready').length, 4);
++  assert.equal(stats().started[0], '/assets/hash0/img0.png', 'critical first after resume');
++});
++
++test('in-flight fetch completes while paused mid-run', async () => {
++  const manifest = imageManifest(3, ['eager', 'eager', 'eager']);
++  const { fetchImpl, stats } = makeTrackingFetch(15); // slow fetches
++  const pauser = new PreloadPauser();
++  const run = preload(buildQueue(manifest), { concurrency: 1, fetchImpl, pauser });
++  await new Promise((r) => setTimeout(r, 5));
++  pauser.setPaused(true); // first fetch in flight
++  await new Promise((r) => setTimeout(r, 40));
++  assert.equal(stats().started.length, 1, 'no second fetch dequeued while paused');
++  pauser.setPaused(false);
++  const results = await run;
++  assert.equal(results.filter((r) => r.status === 'ready').length, 3);
++});
+diff --git a/packages/kernel/src/kernel.ts b/packages/kernel/src/kernel.ts
+index 37fd71c..69edcea 100644
+--- a/packages/kernel/src/kernel.ts
++++ b/packages/kernel/src/kernel.ts
+@@ -77,6 +77,42 @@ export function createKernel(options: KernelOptions = {}): Kernel {
+ 
+   const plugins = createPluginRegistry({ onError: reportError });
+ 
++  // P4: document visibility policy — re-emitted on the typed bus so modules
++  // (asset preload, scrub scheduler) can shed work while hidden. Guarded:
++  // Node-safe import invariant preserved. No lifecycle-state changes.
++  let detachVisibility: (() => void) | null = null;
++  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
++    const onVisibility = () => {
++      bus.emit('engine:visibility', {
++        state: document.visibilityState === 'hidden' ? 'hidden' : 'visible',
++      });
++    };
++    document.addEventListener('visibilitychange', onVisibility);
++    detachVisibility = () => document.removeEventListener('visibilitychange', onVisibility);
++  }
++
++  // P4: longtask attribution — external >50 ms tasks reach budget subscribers
++  // as source:'longtask' (phase 'external'), distinct from scheduler-originated
++  // reports (source undefined). Feature-guarded; unsupported observers no-op.
++  let longtaskObserver: PerformanceObserver | null = null;
++  if (typeof PerformanceObserver !== 'undefined') {
++    try {
++      longtaskObserver = new PerformanceObserver((list) => {
++        for (const entry of list.getEntries()) {
++          bus.emit('scheduler:budget-exceeded', {
++            frameMs: entry.duration,
++            phase: 'external',
++            budgetMs: 50,
++            source: 'longtask',
++          });
++        }
++      });
++      longtaskObserver.observe({ entryTypes: ['longtask'] });
++    } catch {
++      longtaskObserver = null; // longtask unsupported: no crash, no events
++    }
++  }
++
+   const context: KernelContext = {
+     get capabilities() {
+       if (!capabilities) {
+@@ -132,6 +168,10 @@ export function createKernel(options: KernelOptions = {}): Kernel {
+   async function dispose(): Promise<void> {
+     if (lifecycle.phase === 'disposed') return;
+     scheduler.stop();
++    detachVisibility?.();
++    detachVisibility = null;
++    longtaskObserver?.disconnect();
++    longtaskObserver = null;
+     await plugins.disposeAll();
+     lifecycle.transition('disposed');
+   }
+diff --git a/packages/kernel/test/kernel.test.mjs b/packages/kernel/test/kernel.test.mjs
+index 529895f..145df28 100644
+--- a/packages/kernel/test/kernel.test.mjs
++++ b/packages/kernel/test/kernel.test.mjs
+@@ -197,3 +197,83 @@ test('detectCapabilities uses injected environment', async () => {
+   assert.equal(profile.dpr.current, 2);
+   assert.equal(profile.codecs.h264.supported, true);
+ });
++
++// --- P4: visibility policy + longtask attribution ----------------------------
++
++test('visibilitychange is re-emitted on the bus and removed on dispose', async () => {
++  const prevDoc = globalThis.document;
++  const handlers = {};
++  globalThis.document = {
++    visibilityState: 'visible',
++    addEventListener: (t, fn) => { handlers[t] = fn; },
++    removeEventListener: (t) => { delete handlers[t]; },
++  };
++  try {
++    const kernel = createKernel({ capabilities: { reducedMotion: false } });
++    const events = [];
++    kernel.on('engine:visibility', (p) => events.push(p));
++    assert.ok(handlers.visibilitychange, 'listener registered at construction');
++    globalThis.document.visibilityState = 'hidden';
++    handlers.visibilitychange();
++    globalThis.document.visibilityState = 'visible';
++    handlers.visibilitychange();
++    assert.deepEqual(events, [{ state: 'hidden' }, { state: 'visible' }]);
++    await kernel.dispose();
++    assert.equal(handlers.visibilitychange, undefined, 'listener removed on dispose');
++  } finally {
++    globalThis.document = prevDoc;
++  }
++});
++
++test('no document global ⇒ visibility path is a guarded no-op', async () => {
++  const kernel = createKernel({ capabilities: { reducedMotion: false } });
++  const events = [];
++  kernel.on('engine:visibility', (p) => events.push(p));
++  await kernel.dispose(); // must not throw
++  assert.deepEqual(events, []);
++});
++
++test('longtask observer is feature-guarded (no PerformanceObserver ⇒ no crash)', async () => {
++  const prev = globalThis.PerformanceObserver;
++  delete globalThis.PerformanceObserver;
++  try {
++    const kernel = createKernel({ capabilities: { reducedMotion: false } });
++    await kernel.dispose();
++  } finally {
++    globalThis.PerformanceObserver = prev;
++  }
++});
++
++test('supported longtask entries are attributed as source:longtask phase:external', async () => {
++  const prev = globalThis.PerformanceObserver;
++  let observerCb;
++  globalThis.PerformanceObserver = class {
++    constructor(cb) { observerCb = cb; }
++    observe() {}
++    disconnect() { this.disconnected = true; }
++  };
++  try {
++    const kernel = createKernel({ capabilities: { reducedMotion: false } });
++    const reports = [];
++    kernel.on('scheduler:budget-exceeded', (r) => reports.push(r));
++    observerCb({ getEntries: () => [{ duration: 123.4 }] });
++    assert.deepEqual(reports, [{ frameMs: 123.4, phase: 'external', budgetMs: 50, source: 'longtask' }]);
++    await kernel.dispose();
++  } finally {
++    globalThis.PerformanceObserver = prev;
++  }
++});
++
++test('scheduler-originated budget reports leave source undefined', () => {
++  const reports = [];
++  let time = 0;
++  const scheduler = createScheduler({
++    now: () => time,
++    budgetMs: 10,
++    onBudgetExceeded: (r) => reports.push(r),
++  });
++  scheduler.register(() => { time += 15; }, { phase: 'render' });
++  scheduler.tick(0);
++  assert.equal(reports.length, 1);
++  assert.equal(reports[0].source, undefined);
++});
+diff --git a/packages/runtime/src/engine.ts b/packages/runtime/src/engine.ts
+index 3ea7c95..6d282ae 100644
+--- a/packages/runtime/src/engine.ts
++++ b/packages/runtime/src/engine.ts
+@@ -179,6 +179,14 @@ export async function bootEngine(
+ 
+   await kernel.start(); // created → booting → loading → ready → active
+ 
++  // P4: visibility policy — hidden tabs shed preload + scrub-seek work.
++  // (The kernel owns listener registration and re-emits on the typed bus.)
++  let pageHidden = false;
++  const offVisibility = kernel.on('engine:visibility', ({ state }) => {
++    pageHidden = state === 'hidden';
++    assets.setPaused(pageHidden);
++  });
++
+   const reducedMotion = options.reducedMotion ?? kernel.capabilities.reducedMotion;
+   // P1: single owner of reduced-motion behavior. A wire scene default (any
+   // a11y entry declaring `motion`) wins; otherwise reduced motion maps to
+@@ -267,7 +275,7 @@ export async function bootEngine(
+       const playheads = resolvePlayheads(scene.tracks, elapsed, {});
+       for (const [trackId, value] of Object.entries(drivers)) playheads.set(trackId, value);
+       applyBindings(scene.graph, scene.tracks, playheads);
+-      if (scrubTargets.length > 0) {
++      if (scrubTargets.length > 0 && !pageHidden) {
+         // P1: tracks resolving to 'reveal' quantize scrub seeks to their
+         // keyframe boundaries (a scroll-scrubbed video no longer frame-seeks
+         // under reduced motion). Track overrides are honored via trackMode.
+@@ -351,6 +359,7 @@ export async function bootEngine(
+     resume: () => kernel.resume(),
+     async dispose() {
+       unregister();
++      offVisibility();
+       scrubber.dispose();
+       interaction.detach();
+       if (typeof window !== 'undefined' && onResize) {
+```
+
+## P14 — optional-plugin degradation (`9886995`)
+
+```diff
+diff --git a/contracts/src/kernel.ts b/contracts/src/kernel.ts
+index 0bc3132..cb39b78 100644
+--- a/contracts/src/kernel.ts
++++ b/contracts/src/kernel.ts
+@@ -115,6 +115,13 @@ export interface LumenPlugin {
+   readonly provides?: readonly string[];
+   /** Capability tokens this plugin requires (dependency DAG input). */
+   readonly consumes?: readonly string[];
++  /**
++   * P14: when true, an init failure degrades gracefully — the error is
++   * reported with `recoverable: true` and boot continues without the plugin,
++   * UNLESS another registered plugin consumes a token this plugin provides
++   * (unmet mandatory dependency ⇒ boot still aborts). Default false.
++   */
++  readonly optional?: boolean;
+   /** Called during boot, in topological dependency order. */
+   init(ctx: KernelContext): void | Promise<void>;
+   /** Called on engine disposal. */
+diff --git a/packages/kernel/src/plugin.ts b/packages/kernel/src/plugin.ts
+index 6810c5d..84c2e7e 100644
+--- a/packages/kernel/src/plugin.ts
++++ b/packages/kernel/src/plugin.ts
+@@ -79,6 +79,18 @@ export function resolvePluginOrder(plugins: readonly LumenPlugin[]): LumenPlugin
+   return ordered;
+ }
+ 
++/**
++ * P14: true when any *other* registered plugin consumes a token `plugin`
++ * provides — an init failure then remains an unmet mandatory dependency.
++ */
++function isProvidedTokenConsumed(plugin: LumenPlugin, all: readonly LumenPlugin[]): boolean {
++  const provided = new Set(plugin.provides ?? []);
++  if (provided.size === 0) return false;
++  return all.some(
++    (other) => other.name !== plugin.name && (other.consumes ?? []).some((token) => provided.has(token)),
++  );
++}
++
+ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegistry {
+   const plugins: LumenPlugin[] = [];
+   const names = new Set<string>();
+@@ -123,7 +135,8 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
+           {
+             module: plugin.name,
+             code: KERNEL_ERROR_CODES.PLUGIN_INIT_FAILED,
+-            recoverable: false,
++            // P14: optional plugins report recoverable failures.
++            recoverable: plugin.optional === true,
+             onError: (err) => {
+               failure = err;
+               options.onError(err);
+@@ -137,6 +150,11 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
+         if (ok === true) {
+           initialized.push(plugin);
+         } else if (failure !== null) {
++          // P14: optional plugins degrade gracefully when nothing depends on
++          // the tokens they provide; otherwise the failure stays fatal.
++          if (plugin.optional === true && !isProvidedTokenConsumed(plugin, plugins)) {
++            continue; // boot without it; disposeAll never sees it
++          }
+           throw failure;
+         }
+       }
+diff --git a/packages/kernel/test/kernel.test.mjs b/packages/kernel/test/kernel.test.mjs
+index 145df28..22bb41d 100644
+--- a/packages/kernel/test/kernel.test.mjs
++++ b/packages/kernel/test/kernel.test.mjs
+@@ -277,3 +277,85 @@ test('scheduler-originated budget reports leave source undefined', () => {
+   assert.equal(reports.length, 1);
+   assert.equal(reports[0].source, undefined);
+ });
++
++// --- P14: optional-plugin degradation ----------------------------------------
++
++const p14Kernel = () => {
++  const kernel = createKernel({
++    capabilities: fakeCaps,
++    scheduler: { requestFrame: () => 0, cancelFrame: () => {} },
++  });
++  const errors = [];
++  kernel.on('engine:error', (e) => errors.push(e));
++  return { kernel, errors };
++};
++
++test('optional plugin init failure degrades: boot completes, recoverable error', async () => {
++  const { kernel, errors } = p14Kernel();
++  let disposedSkipped = false;
++  kernel.registerPlugin({
++    name: 'flaky-analytics',
++    version: '1.0.0',
++    optional: true,
++    init: () => { throw new Error('no network'); },
++    dispose: () => { disposedSkipped = true; },
++  });
++  kernel.registerPlugin({ name: 'core', version: '1.0.0', init: () => {}, dispose: () => {} });
++
++  await kernel.boot();
++  assert.equal(kernel.phase, 'active');
++  const initErr = errors.find((e) => e.code === 'PLUGIN_INIT_FAILED');
++  assert.ok(initErr, 'engine:error emitted');
++  assert.equal(initErr.module, 'flaky-analytics');
++  assert.equal(initErr.recoverable, true);
++  await kernel.dispose();
++  assert.equal(disposedSkipped, false, 'dispose of a skipped optional plugin is never called');
++});
++
++test('optional plugin whose token is consumed still aborts boot', async () => {
++  const { kernel } = p14Kernel();
++  kernel.registerPlugin({
++    name: 'optional-renderer',
++    version: '1.0.0',
++    optional: true,
++    provides: ['renderer:webgpu'],
++    init: () => { throw new Error('no adapter'); },
++    dispose: () => {},
++  });
++  kernel.registerPlugin({
++    name: 'renderer-user',
++    version: '1.0.0',
++    consumes: ['renderer:webgpu'],
++    init: () => {},
++    dispose: () => {},
++  });
++  await assert.rejects(kernel.start(), (err) => err && err.code === 'PLUGIN_INIT_FAILED');
++  assert.notEqual(kernel.phase, 'active');
++});
++
++test('mandatory plugin failure semantics unchanged (recoverable stays false)', async () => {
++  const { kernel, errors } = p14Kernel();
++  kernel.registerPlugin({
++    name: 'bad',
++    version: '1.0.0',
++    init: () => { throw new Error('boom'); },
++    dispose: () => {},
++  });
++  await assert.rejects(kernel.start());
++  assert.equal(errors[0].recoverable, false);
++});
++
++test('successful optional plugin initializes and disposes normally', async () => {
++  const { kernel } = p14Kernel();
++  const calls = [];
++  kernel.registerPlugin({
++    name: 'opt',
++    version: '1.0.0',
++    optional: true,
++    init: () => calls.push('init'),
++    dispose: () => calls.push('dispose'),
++  });
++  await kernel.boot();
++  await kernel.dispose();
++  assert.deepEqual(calls, ['init', 'dispose']);
++});
+```
+
+## P12 — a11y hydration + live-region announcer (`abdac4b`)
+
+```diff
+diff --git a/packages/runtime/src/engine.ts b/packages/runtime/src/engine.ts
+index 6d282ae..7f1c838 100644
+--- a/packages/runtime/src/engine.ts
++++ b/packages/runtime/src/engine.ts
+@@ -396,14 +396,69 @@ export async function hydrateIslands(
+   islands: readonly string[],
+ ): Promise<void> {
+   if (typeof document === 'undefined') return;
++  // P12: re-apply the a11y wire record during hydration (idempotent with the
++  // SSR output in gen-static.ts). Absent entries ⇒ legacy behavior.
++  const a11y = (engine as LumenEngine | null)?.ir?.a11y;
+   for (const id of islands ?? []) {
+     const el = document.getElementById(id);
+     if (!el) continue;
++    const entry = a11y?.[id];
++    if (entry) {
++      el.setAttribute('aria-label', entry.label);
++      if (entry.summary && el.querySelector('.lumen-visually-hidden') === null) {
++        const desc = document.createElement('p');
++        desc.className = 'lumen-visually-hidden';
++        desc.textContent = entry.summary;
++        el.appendChild(desc);
++      }
++    }
+     el.setAttribute('data-lumen-hydrated', '');
+     el.dispatchEvent(new CustomEvent('lumen:hydrate', { detail: { engine, island: id } }));
+   }
+ }
+ 
++/** Visually-hidden but screen-reader-visible inline styles. */
++const VISUALLY_HIDDEN: Partial<CSSStyleDeclaration> = {
++  position: 'absolute',
++  width: '1px',
++  height: '1px',
++  overflow: 'hidden',
++  clipPath: 'inset(50%)',
++  whiteSpace: 'nowrap',
++};
++
++/**
++ * P12: live-region announcer. Appends one `aria-live="polite"`
++ * visually-hidden div to `rootElement` and announces scene transitions by
++ * their wire `a11y[sceneId].label`. Scene navigation requests
++ * ('scene:next'/'scene:prev') resolve into 'scene:enter' transitions, so
++ * that single subscription covers keyboard/semantic navigation; under a
++ * P1 reveal/static policy each snap transition is announced as a discrete
++ * state change. Returns a dispose function (unsubscribe + node removal).
++ * Guarded: a no-op disposer without a DOM.
++ */
++export function createA11yAnnouncer(
++  engine: LumenEngine,
++  rootElement: HTMLElement,
++): () => void {
++  if (typeof document === 'undefined') return () => undefined;
++  const region = document.createElement('div');
++  region.setAttribute('aria-live', 'polite');
++  region.className = 'lumen-visually-hidden';
++  Object.assign(region.style, VISUALLY_HIDDEN);
++  rootElement.appendChild(region);
++
++  const off = engine.on('scene:enter', ({ sceneId }) => {
++    const label = engine.ir.a11y[sceneId]?.label;
++    if (label !== undefined) region.textContent = label;
++  });
++
++  return () => {
++    off();
++    region.remove();
++  };
++}
++
+ /** Narrow a bootEngine() result for KernelHandle-only consumers. */
+ export function asKernelHandle(engine: LumenEngine): KernelHandle {
+   return engine.kernel;
+diff --git a/packages/runtime/src/index.ts b/packages/runtime/src/index.ts
+index b000268..c3bc3b4 100644
+--- a/packages/runtime/src/index.ts
++++ b/packages/runtime/src/index.ts
+@@ -30,6 +30,7 @@ export {
+ export {
+   asKernelHandle,
+   bootEngine,
++  createA11yAnnouncer,
+   hydrateIslands,
+   parseSceneIR,
+   type BootOptions,
+diff --git a/packages/runtime/test/a11y.test.mjs b/packages/runtime/test/a11y.test.mjs
+new file mode 100644
+index 0000000..55086cf
+--- /dev/null
++++ b/packages/runtime/test/a11y.test.mjs
+@@ -0,0 +1,103 @@
++/**
++ * P12: a11y hydration (wire SceneIR.a11y → islands) + live-region announcer.
++ * Runs against compiled dists with a minimal fake DOM.
++ */
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++
++function makeEl(tag = 'div') {
++  const el = {
++    tagName: tag,
++    attrs: {},
++    children: [],
++    className: '',
++    textContent: '',
++    style: {},
++    parentElement: null,
++    setAttribute(k, v) { el.attrs[k] = v; },
++    getAttribute(k) { return el.attrs[k]; },
++    appendChild(c) { c.parentElement = el; el.children.push(c); return c; },
++    remove() { el.parentElement?.children.splice(el.parentElement.children.indexOf(el), 1); },
++    querySelector(sel) {
++      const cls = sel.replace('.', '');
++      const walk = (n) => {
++        for (const c of n.children ?? []) {
++          if (c.className === cls) return c;
++          const hit = walk(c);
++          if (hit) return hit;
++        }
++        return null;
++      };
++      return walk(el);
++    },
++    dispatchEvent(ev) { el.lastEvent = ev; return true; },
++  };
++  return el;
++}
++
++const byId = new Map();
++globalThis.document = {
++  getElementById: (id) => byId.get(id) ?? null,
++  createElement: (tag) => makeEl(tag),
++};
++globalThis.CustomEvent = class {
++  constructor(type, init) { this.type = type; this.detail = init?.detail; }
++};
++
++const { hydrateIslands, createA11yAnnouncer } = await import('../dist/index.js');
++
++function fakeEngine(a11y) {
++  const handlers = new Map();
++  return {
++    ir: { a11y },
++    on: (ev, fn) => { handlers.set(ev, fn); return () => handlers.delete(ev); },
++    emit: (ev, payload) => handlers.get(ev)?.(payload),
++  };
++}
++
++test('island with an a11y entry gets aria-label and summary node', async () => {
++  const el = makeEl();
++  byId.set('hero', el);
++  await hydrateIslands(fakeEngine({ hero: { label: 'Hero', summary: 'Intro scene' } }), ['hero']);
++  assert.equal(el.attrs['aria-label'], 'Hero');
++  const desc = el.querySelector('.lumen-visually-hidden');
++  assert.ok(desc, 'description node added');
++  assert.equal(desc.textContent, 'Intro scene');
++  assert.ok('data-lumen-hydrated' in el.attrs);
++  byId.clear();
++});
++
++test('hydration is idempotent: re-run does not duplicate the description node', async () => {
++  const el = makeEl();
++  byId.set('hero', el);
++  const engine = fakeEngine({ hero: { label: 'Hero', summary: 'Intro scene' } });
++  await hydrateIslands(engine, ['hero']);
++  await hydrateIslands(engine, ['hero']);
++  assert.equal(el.children.filter((c) => c.className === 'lumen-visually-hidden').length, 1);
++  byId.clear();
++});
++
++test('island without an a11y entry gets no aria attributes (legacy behavior)', async () => {
++  const el = makeEl();
++  byId.set('plain', el);
++  await hydrateIslands(fakeEngine({}), ['plain']);
++  assert.equal(el.attrs['aria-label'], undefined);
++  assert.equal(el.children.length, 0);
++  assert.ok('data-lumen-hydrated' in el.attrs);
++  byId.clear();
++});
++
++test('announcer updates the live region on scene:enter with the scene label', () => {
++  const root = makeEl();
++  const engine = fakeEngine({ hero: { label: 'Hero scene' } });
++  const dispose = createA11yAnnouncer(engine, root);
++  const region = root.children[0];
++  assert.equal(region.attrs['aria-live'], 'polite');
++  engine.emit('scene:enter', { sceneId: 'hero', index: 0 });
++  assert.equal(region.textContent, 'Hero scene');
++  engine.emit('scene:enter', { sceneId: 'unknown', index: 1 });
++  assert.equal(region.textContent, 'Hero scene', 'unknown scene leaves the last announcement');
++  dispose();
++  assert.equal(root.children.length, 0, 'region removed on dispose');
++  engine.emit('scene:enter', { sceneId: 'hero', index: 2 }); // unsubscribed: no throw
++});
+```
+
+## P17+P8 — poster SSR fallback + version-skew graceful degradation (`7737c38`)
+
+```diff
+diff --git a/contracts/src/ir.ts b/contracts/src/ir.ts
+index 1ad68a0..21809f8 100644
+--- a/contracts/src/ir.ts
++++ b/contracts/src/ir.ts
+@@ -118,6 +118,13 @@ export interface IRAssetRef {
+  */
+ export interface SceneIR {
+   version: typeof SCENE_IR_VERSION;
++  /**
++   * P8: minimum @lumen/runtime semver required to boot this document.
++   * Stamped by codegen; the runtime throws VersionSkewError at parse time
++   * when its own version is older, letting hosts degrade gracefully
++   * (keep the SSR skeleton) instead of failing midway through boot.
++   */
++  minRuntime?: string;
+   /** Site metadata from config.meta. */
+   site: {
+     id: string;
+diff --git a/contracts/src/kernel.ts b/contracts/src/kernel.ts
+index cb39b78..004750a 100644
+--- a/contracts/src/kernel.ts
++++ b/contracts/src/kernel.ts
+@@ -103,6 +103,11 @@ export interface EngineEventMap {
+   'timeline:seek': { time: number; source: 'user' | 'programmatic' };
+   /** Adaptive quality tier changed. */
+   'render:quality-change': { dprScale: number; backend: string };
++  /**
++   * P17: emitted exactly once after the first frame is rendered — the
++   * signal that SSR poster placeholders have been swapped for live pixels.
++   */
++  'render:first-frame': { drawCalls: number };
+ }
+ 
+ /** Plugin contract: declares capability tokens and lifecycle hooks. */
+diff --git a/packages/codegen/src/codegen.ts b/packages/codegen/src/codegen.ts
+index 7a688a5..5fe252a 100644
+--- a/packages/codegen/src/codegen.ts
++++ b/packages/codegen/src/codegen.ts
+@@ -6,6 +6,7 @@
+  */
+ 
+ import type {
++  AssetManifest,
+   CodegenOptions,
+   CodegenResult,
+   CodegenWarning,
+@@ -72,6 +73,7 @@ export function generate(
+   descriptor: TemplateDescriptor,
+   scene: ComposedScene,
+   options: CodegenOptions,
++  manifest?: AssetManifest,
+ ): CodegenResult {
+   const warnings: CodegenWarning[] = [];
+   const ir = lowerToIR(config, descriptor.themeTokens, scene);
+@@ -91,6 +93,7 @@ export function generate(
+       interactions: [...descriptor.requiredCapabilities.interactions],
+     },
+     warnings,
++    ...(manifest ? { manifest } : {}),
+   };
+ 
+   let out: Pick<CodegenResult, 'entry' | 'files' | 'ssrHtml' | 'hydrationManifest'>;
+diff --git a/packages/codegen/src/common.ts b/packages/codegen/src/common.ts
+index 67068f4..44ce944 100644
+--- a/packages/codegen/src/common.ts
++++ b/packages/codegen/src/common.ts
+@@ -4,6 +4,7 @@
+  */
+ 
+ import type {
++  AssetManifest,
+   CodegenOptions,
+   CodegenWarning,
+   EngineConfig,
+@@ -28,6 +29,8 @@ export interface TargetContext {
+     interactions: string[];
+   };
+   warnings: CodegenWarning[];
++  /** P17: optional build-pipeline asset manifest (posters for SSR fallback). */
++  manifest?: AssetManifest;
+ }
+ 
+ /** Byte threshold above which embedded IR JSON earns a warning. */
+@@ -180,11 +183,23 @@ export function criticalCss(theme: ThemeTokens): string {
+ /**
+  * Build the SSR HTML skeleton for the first scene: dom nodes render their
+  * html inline; video-plane/sprite/mesh nodes render poster <img> placeholders.
++ *
++ * P17: when the build-pipeline `manifest` is provided and the node's asset
++ * has a video poster, the placeholder embeds a real
++ * `<img data-lumen-poster>` so first paint shows content before the runtime
++ * boots (and survives a boot failure, P8). The runtime removes these imgs
++ * on its first rendered frame (`render:first-frame`).
+  */
+-export function ssrSkeleton(ir: SceneIR, config: EngineConfig): string {
++export function ssrSkeleton(ir: SceneIR, config: EngineConfig, manifest?: AssetManifest): string {
+   const parts: string[] = [];
+   const firstScene = config.scenes[0];
+   const out: string[] = [];
++  const posterFor = (assetId: string | undefined): string | undefined => {
++    if (!manifest || !assetId) return undefined;
++    const entry = manifest.assets[assetId];
++    if (entry && entry.kind === 'video' && entry.poster) return entry.poster;
++    return undefined;
++  };
+   const visitRoots = (nodes: SceneIR['nodes'], depth: number): void => {
+     for (const n of nodes) {
+       if (!n.visible) continue;
+@@ -195,8 +210,12 @@ export function ssrSkeleton(ir: SceneIR, config: EngineConfig): string {
+         out.push(`${pad}</div>`);
+       } else if (n.kind === 'video-plane' || n.kind === 'sprite' || n.kind === 'mesh') {
+         const label = firstScene ? escapeHtml(firstScene.a11y.label) : 'Lumen scene';
++        const poster = posterFor(n.assetId);
++        const img = poster
++          ? `<img data-lumen-poster src="${escapeHtml(poster)}" alt="${label}" loading="eager" decoding="async">`
++          : '';
+         out.push(
+-          `${pad}<div class="lumen-spatial" data-node="${escapeHtml(n.id)}" data-asset="${escapeHtml(n.assetId ?? '')}" role="img" aria-label="${label}"></div>`,
++          `${pad}<div class="lumen-spatial" data-node="${escapeHtml(n.id)}" data-asset="${escapeHtml(n.assetId ?? '')}" role="img" aria-label="${label}">${img}</div>`,
+         );
+       } else {
+         out.push(`${pad}<section class="lumen-scene" data-node="${escapeHtml(n.id)}">`);
+diff --git a/packages/codegen/src/gen-static.ts b/packages/codegen/src/gen-static.ts
+index e66014d..db5797f 100644
+--- a/packages/codegen/src/gen-static.ts
++++ b/packages/codegen/src/gen-static.ts
+@@ -36,10 +36,13 @@ function sceneSections(ctx: TargetContext, w: CodeWriter): void {
+       `aria-label="${escapeHtml(sc.a11y.label)}"`,
+     ];
+     if (island) attrs.push('data-lumen-island="true"');
++    // P17: mark the SSR skeleton so hosts/tests can detect (and the runtime
++    // can preserve) the static fallback markup.
++    if (ssr && i === 0) attrs.push('data-lumen-skeleton="1"');
+     w.line(`<section ${attrs.join(' ')}>`);
+     w.indent();
+     if (ssr && i === 0) {
+-      w.line(ssrSkeleton(ir, config));
++      w.line(ssrSkeleton(ir, config, ctx.manifest));
+     } else if (sc.a11y.summary) {
+       w.line(`<p class="lumen-visually-hidden">${escapeHtml(sc.a11y.summary)}</p>`);
+     }
+diff --git a/packages/codegen/src/ir.ts b/packages/codegen/src/ir.ts
+index 7e7e562..54905ba 100644
+--- a/packages/codegen/src/ir.ts
++++ b/packages/codegen/src/ir.ts
+@@ -27,6 +27,9 @@ import { resolveThemeTokens } from '@lumen/templates';
+ // codegen -> generated code -> runtime handshake). Re-exported here for source
+ // compatibility with existing codegen consumers.
+ export { SCENE_IR_VERSION } from '@lumen/contracts';
++
++/** P8: minimum @lumen/runtime version able to boot documents we lower. */
++export const MIN_RUNTIME_VERSION = '0.1.0';
+ export type { IRAssetRef, IRBinding, IRNode, IRTrack, SceneIR } from '@lumen/contracts';
+ 
+ /** Nearest named easing to a cubic bezier (forward-compat fallback, P15). */
+@@ -180,6 +183,9 @@ export function lowerToIR(
+   }
+   const ir: SceneIR = {
+     version: SCENE_IR_VERSION,
++    // P8: stamp the minimum runtime this document was lowered for so an
++    // older deployed runtime can detect the skew and degrade gracefully.
++    minRuntime: MIN_RUNTIME_VERSION,
+     site: {
+       id: config.id,
+       title: config.meta.title,
+diff --git a/packages/codegen/test/poster.test.mjs b/packages/codegen/test/poster.test.mjs
+new file mode 100644
+index 0000000..3a3b85e
+--- /dev/null
++++ b/packages/codegen/test/poster.test.mjs
+@@ -0,0 +1,66 @@
++/**
++ * P17 — SSR poster fallback: ssrSkeleton emits a real
++ * `<img data-lumen-poster>` for video assets with a poster in the
++ * build-pipeline manifest; gen-static marks the skeleton with
++ * data-lumen-skeleton="1". Run against compiled dists: `node --test test/`.
++ */
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++
++import { generate } from '../dist/index.js';
++import { makeConfig, makeDescriptor, makeOptions, makeScene } from './fixtures.mjs';
++
++function makeManifest() {
++  return {
++    version: 1,
++    generatedAt: '2024-01-01T00:00:00.000Z',
++    assets: {
++      'hero-video': {
++        id: 'hero-video',
++        kind: 'video',
++        preload: 'critical',
++        bytes: 0,
++        duration: 10,
++        width: 1920,
++        height: 1080,
++        poster: '/media/hero-poster.jpg',
++        variants: {},
++        scrubOptimized: false,
++      },
++    },
++  };
++}
++
++function indexHtml(res) {
++  return res.files.find((f) => f.path === 'index.html').source;
++}
++
++test('static SSR skeleton carries the data-lumen-skeleton marker', () => {
++  const res = generate(makeConfig(), makeDescriptor(), makeScene(), makeOptions('static'));
++  assert.match(indexHtml(res), /data-lumen-skeleton="1"/);
++});
++
++test('poster <img data-lumen-poster> emitted for video poster variant when manifest given', () => {
++  const res = generate(
++    makeConfig(),
++    makeDescriptor(),
++    makeScene(),
++    makeOptions('static'),
++    makeManifest(),
++  );
++  const html = indexHtml(res);
++  assert.match(html, /data-lumen-skeleton="1"/);
++  assert.match(html, /<img data-lumen-poster src="\/media\/hero-poster\.jpg"/);
++  // Poster sits inside the spatial placeholder of the hero video node.
++  assert.match(html, /data-node="n-vid"[^>]*role="img"[^>]*><img data-lumen-poster/);
++  // Assets without a manifest entry (ghost-asset) get no poster.
++  assert.doesNotMatch(html, /data-node="n-ghost"[^>]*><img/);
++});
++
++test('no poster img without a manifest (graceful absence)', () => {
++  const res = generate(makeConfig(), makeDescriptor(), makeScene(), makeOptions('static'));
++  const html = indexHtml(res);
++  assert.doesNotMatch(html, /data-lumen-poster/);
++  // Marker still present — the skeleton itself is independent of posters.
++  assert.match(html, /data-lumen-skeleton="1"/);
++});
+diff --git a/packages/runtime/src/engine.ts b/packages/runtime/src/engine.ts
+index 7f1c838..5599471 100644
+--- a/packages/runtime/src/engine.ts
++++ b/packages/runtime/src/engine.ts
+@@ -101,6 +101,40 @@ const DEFAULT_CAMERA: CameraState = {
+   far: 100,
+ };
+ 
++/** Runtime package version, compared against SceneIR.minRuntime (P8). */
++export const LUMEN_RUNTIME_VERSION = '0.1.0';
++
++/**
++ * P8: thrown by parseSceneIR when a document declares a `minRuntime`
++ * newer than this runtime — a deploy skew (stale runtime, fresh site).
++ * Carries the semver strings so hosts can log/report precisely.
++ */
++export class VersionSkewError extends Error {
++  override readonly name = 'VersionSkewError';
++  /** Minimum runtime version the document requires. */
++  readonly expected: string;
++  /** Version of the runtime that rejected the document. */
++  readonly got: string;
++  constructor(expected: string, got: string) {
++    super(
++      `@lumen/runtime: SceneIR requires runtime >= ${expected}, but this runtime is ${got} (IR_VERSION_SKEW)`,
++    );
++    this.expected = expected;
++    this.got = got;
++  }
++}
++
++/** Compare two dotted numeric semver strings: <0 a<b, 0 equal, >0 a>b. */
++function compareSemver(a: string, b: string): number {
++  const pa = a.split('.').map((p) => Number.parseInt(p, 10) || 0);
++  const pb = b.split('.').map((p) => Number.parseInt(p, 10) || 0);
++  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
++    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
++    if (d !== 0) return d;
++  }
++  return 0;
++}
++
+ /** Parse/accept a SceneIR document (object or JSON string). */
+ export function parseSceneIR(input: SceneIR | string | unknown): SceneIR {
+   const value = typeof input === 'string' ? (JSON.parse(input) as unknown) : input;
+@@ -108,7 +142,13 @@ export function parseSceneIR(input: SceneIR | string | unknown): SceneIR {
+   if (problem !== null) {
+     throw new Error(`@lumen/runtime: invalid SceneIR document — ${problem}`);
+   }
+-  return value as SceneIR;
++  const ir = value as SceneIR;
++  // P8: version-skew guard. Structural validation (isSceneIR) still accepts
++  // the document — only booting it with an older runtime is rejected.
++  if (typeof ir.minRuntime === 'string' && compareSemver(ir.minRuntime, LUMEN_RUNTIME_VERSION) > 0) {
++    throw new VersionSkewError(ir.minRuntime, LUMEN_RUNTIME_VERSION);
++  }
++  return ir;
+ }
+ 
+ /**
+@@ -129,8 +169,6 @@ export async function bootEngine(
+       '@lumen/runtime: bootEngine() called twice on the same root element; dispose the previous engine first',
+     );
+   }
+-  const ir = parseSceneIR(irInput);
+-
+   const kernel = createKernel(options.kernel);
+   // From here on, any failure must dispose the kernel (plugins, scheduler,
+   // asset handles) and remove a partially appended canvas before rethrowing.
+@@ -138,6 +176,23 @@ export async function bootEngine(
+   let onResize: (() => void) | null = null;
+   try {
+   const bus = kernel.bus;
++  let ir: SceneIR;
++  try {
++    ir = parseSceneIR(irInput);
++  } catch (err) {
++    // P8: version skew — degrade gracefully. The SSR skeleton (incl. P17
++    // poster imgs) stays in the DOM untouched; hosts get a typed
++    // engine:error with code IR_VERSION_SKEW before the kernel tears down.
++    if (err instanceof VersionSkewError) {
++      bus.emit('engine:error', {
++        module: 'runtime',
++        code: 'IR_VERSION_SKEW',
++        recoverable: false,
++        cause: err,
++      });
++    }
++    throw err;
++  }
+   const composed = composedSceneFromIR(ir);
+   const scene = createSceneRuntime(composed);
+   // P5: resolve the active scene's first camera node once at boot (R3:
+@@ -260,6 +315,7 @@ export async function bootEngine(
+ 
+   // --- Frame loop: interaction → drivers → scene evaluate → render. --------
+   let elapsed = 0;
++  let firstFrameEmitted = false;
+   const stats: FrameStats = { cpuMs: 0, gpuMsEstimate: 0, drawCalls: 0, overBudget: false };
+   const unregister = kernel.scheduler.register(
+     (frame) => {
+@@ -330,6 +386,19 @@ export async function bootEngine(
+       };
+       renderer.renderFrame(renderFrame, stats);
+ 
++      // P17: after the first real frame, swap SSR poster placeholders for
++      // live pixels — but only for nodes that actually made the draw list
++      // (hidden/unmounted nodes keep their posters). Emitted exactly once.
++      if (!firstFrameEmitted) {
++        firstFrameEmitted = true;
++        for (const call of drawList) {
++          const host = rootElement.querySelector(`[data-node="${call.nodeId}"]`);
++          const posters = host?.querySelectorAll('img[data-lumen-poster]');
++          posters?.forEach((img) => img.remove());
++        }
++        bus.emit('render:first-frame', { drawCalls: drawList.length });
++      }
++
+       if (quality.update(stats)) {
+         const level: QualityLevel = quality.getLevel();
+         renderer.setQuality(level);
+diff --git a/packages/runtime/src/index.ts b/packages/runtime/src/index.ts
+index c3bc3b4..2c4890c 100644
+--- a/packages/runtime/src/index.ts
++++ b/packages/runtime/src/index.ts
+@@ -33,6 +33,8 @@ export {
+   createA11yAnnouncer,
+   hydrateIslands,
+   parseSceneIR,
++  LUMEN_RUNTIME_VERSION,
++  VersionSkewError,
+   type BootOptions,
+   type LumenEngine,
+ } from './engine.js';
+diff --git a/packages/runtime/test/skew.test.mjs b/packages/runtime/test/skew.test.mjs
+new file mode 100644
+index 0000000..510b781
+--- /dev/null
++++ b/packages/runtime/test/skew.test.mjs
+@@ -0,0 +1,79 @@
++/**
++ * P8 — version-skew graceful degradation (parse level): parseSceneIR throws
++ * VersionSkewError (with expected/got semver fields) when a document's
++ * minRuntime is newer than this runtime; isSceneIR structural validation
++ * still accepts the same v1 documents.
++ *
++ * Deviation (documented): boot-level DOM behavior (SSR skeleton preserved +
++ * engine:error IR_VERSION_SKEW emission) is not covered here — no DOM
++ * harness exists in this package; coverage is parse-level only.
++ *
++ * Run against compiled dists: `node --test test/skew.test.mjs`.
++ */
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++
++import {
++  LUMEN_RUNTIME_VERSION,
++  VersionSkewError,
++  isSceneIR,
++  parseSceneIR,
++} from '../dist/index.js';
++import { SCENE_IR_VERSION } from '../../../contracts/dist/index.js';
++
++function validIR(overrides = {}) {
++  return {
++    version: SCENE_IR_VERSION,
++    site: { id: 'site-1', title: 'T', description: '', locale: 'en' },
++    template: 'scroll-video',
++    theme: {},
++    nodes: [],
++    tracks: [],
++    bindings: [],
++    assets: [],
++    hydration: { ssr: false, islands: [] },
++    a11y: {},
++    ...overrides,
++  };
++}
++
++/** Bump the major component of a semver string. */
++function nextMajor(v) {
++  const [major, ...rest] = v.split('.').map((p) => Number.parseInt(p, 10) || 0);
++  return [major + 1, ...rest].join('.');
++}
++
++test('parseSceneIR throws VersionSkewError on minRuntime mismatch', () => {
++  const required = nextMajor(LUMEN_RUNTIME_VERSION);
++  const ir = validIR({ minRuntime: required });
++  assert.throws(
++    () => parseSceneIR(ir),
++    (err) => {
++      assert.ok(err instanceof VersionSkewError);
++      assert.equal(err.name, 'VersionSkewError');
++      assert.equal(err.expected, required);
++      assert.equal(err.got, LUMEN_RUNTIME_VERSION);
++      assert.match(err.message, /IR_VERSION_SKEW/);
++      return true;
++    },
++  );
++});
++
++test('parseSceneIR throws VersionSkewError for JSON string input too', () => {
++  const required = nextMajor(LUMEN_RUNTIME_VERSION);
++  assert.throws(() => parseSceneIR(JSON.stringify(validIR({ minRuntime: required }))), VersionSkewError);
++});
++
++test('parseSceneIR accepts equal/older/absent minRuntime', () => {
++  assert.equal(parseSceneIR(validIR()).version, SCENE_IR_VERSION);
++  assert.equal(parseSceneIR(validIR({ minRuntime: LUMEN_RUNTIME_VERSION })).minRuntime, LUMEN_RUNTIME_VERSION);
++  assert.equal(parseSceneIR(validIR({ minRuntime: '0.0.1' })).minRuntime, '0.0.1');
++});
++
++test('isSceneIR still accepts v1 documents regardless of minRuntime', () => {
++  assert.equal(isSceneIR(validIR()), true);
++  assert.equal(isSceneIR(validIR({ minRuntime: LUMEN_RUNTIME_VERSION })), true);
++  // Structural validation is skew-agnostic: even a future minRuntime is a
++  // valid v1 document — only booting it is rejected.
++  assert.equal(isSceneIR(validIR({ minRuntime: nextMajor(LUMEN_RUNTIME_VERSION) })), true);
++});
+```
+
+---
+
+## Implementation notes
+
+
+Deviations from the Phase 4 plans, as implemented:
+
+- **MotionPolicy / MotionMode** live in `contracts/ir.ts` (wire types) and
+  `packages/runtime/src/motion.ts` (policy implementation) rather than the
+  locations sketched in the P1 plan.
+- **P15 smoothing** is applied inside `InteractionManager` via the
+  `trackSmoothing` option (wired from `IRTrack.smoothing` at boot), not as a
+  separate scene-layer pass.
+- **P13 window-hi** DPR selection takes the *last* match of the top dpr
+  group (documented in `packages/rendering/src/quality.ts`).
+- **P17 poster removal** matches draw-list `nodeId`s: only posters of nodes
+  that produced a draw call on the first frame are removed; posters of
+  hidden/unmounted nodes are kept.
+- **P17+P8 boot-level tests omitted** — parse-level coverage only
+  (`packages/runtime/test/skew.test.mjs`,
+  `packages/codegen/test/poster.test.mjs`). The runtime package has no DOM
+  harness, so the bootEngine skeleton-preservation path and the
+  `render:first-frame` poster swap are not exercised by unit tests; the
+  poster markup itself is verified in the generated example dists.
+

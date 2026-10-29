@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>The Long Way North</title>
+  <meta name="description" content="A single-page cinematic story told in three acts, built with Lumen.">
+  <meta property="og:title" content="The Long Way North">
+  <meta property="og:description" content="A single-page cinematic story told in three acts, built with Lumen.">
+  <meta property="og:type" content="website">
+  <script type="importmap">{"imports":{"@lumen/runtime":"./vendor/runtime/index.js","@lumen/kernel":"./vendor/kernel/index.js","@lumen/scene":"./vendor/scene/index.js","@lumen/rendering":"./vendor/rendering/index.js","@lumen/assets":"./vendor/assets/index.js","@lumen/interaction":"./vendor/interaction/index.js","@lumen/contracts":"./vendor/contracts/index.js"}}</script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    html,body{margin:0;padding:0}
+    :root {
+      --lumen-color-background: #08080c;
+      --lumen-color-foreground: #efece4;
+      --lumen-color-accent: #b0874f;
+      --lumen-color-surface: #12121a;
+      --lumen-color-caption-bg: rgba(8, 8, 12, 0.55);
+      --lumen-color-color-bg: #0b0d10;
+      --lumen-color-color-fg: #f5f7fa;
+      --lumen-color-color-accent: #6aa9ff;
+      --lumen-color-color-muted: #8b93a1;
+      --lumen-type-caption-size: 0.875rem;
+      --lumen-type-caption-line-height: 1.4;
+      --lumen-type-caption-weight: 400;
+      --lumen-type-body-size: 1rem;
+      --lumen-type-body-line-height: 1.5;
+      --lumen-type-body-weight: 400;
+      --lumen-type-title-size: 1.75rem;
+      --lumen-type-title-line-height: 1.25;
+      --lumen-type-title-weight: 600;
+      --lumen-type-display-size: 3rem;
+      --lumen-type-display-line-height: 1.1;
+      --lumen-type-display-weight: 700;
+      --lumen-space-xs: 0.25rem;
+      --lumen-space-sm: 0.5rem;
+      --lumen-space-md: 1rem;
+      --lumen-space-lg: 2rem;
+      --lumen-space-xl: 4rem;
+      --lumen-duration-fast: 150ms;
+      --lumen-duration-medium: 500ms;
+      --lumen-duration-slow: 600ms;
+      --lumen-duration-normal: 300ms;
+      --lumen-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+      --lumen-ease-emphasized: cubic-bezier(0.3, 0, 0, 1);
+    }
+    .lumen-root{min-height:100vh;min-height:100dvh;touch-action:pan-y}
+    .lumen-scene{position:relative}
+    .lumen-canvas{display:block;width:100%;height:100%}
+  </style>
+</head>
+<body>
+  <main class="lumen-root" id="lumen-root" data-site="cinematic-story">
+    <section id="title-card" class="lumen-scene" data-slot="title-card" aria-label="Title card" data-lumen-skeleton="1">
+          <section class="lumen-scene" data-node="node-title-card">
+            <div class="lumen-dom" data-node="title-text">
+              <h1>The Long Way North</h1><p>A story in three acts</p>
+            </div>
+          </section>
+          <section class="lumen-scene" data-node="node-act-1">
+            <div class="lumen-spatial" data-node="act-1-video" data-asset="act-one-film" role="img" aria-label="Title card"></div>
+            <div class="lumen-dom" data-node="act-1-caption">
+              <h2>I. Departure</h2><p>The road unspools behind.</p>
+            </div>
+          </section>
+          <section class="lumen-scene" data-node="node-act-2">
+            <div class="lumen-dom" data-node="act-2-caption">
+              <h2>II. Weather</h2><p>The storm decides the pace.</p>
+            </div>
+          </section>
+          <section class="lumen-scene" data-node="node-act-3">
+            <div class="lumen-spatial" data-node="act-3-still" data-asset="act-three-still" role="img" aria-label="Title card"></div>
+            <div class="lumen-dom" data-node="act-3-caption">
+              <h2>III. Arrival</h2><p>North is a feeling, not a place.</p>
+            </div>
+          </section>
+          <section class="lumen-scene" data-node="node-credits">
+            <div class="lumen-dom" data-node="credits-roll">
+              <p>Directed by Lumen · Shot on location</p>
+            </div>
+          </section>
+          <section class="lumen-scene" data-node="node-score">
+          </section>
+    </section>
+    <section id="act-1" class="lumen-scene" data-slot="acts" aria-label="Act one: departure">
+    </section>
+    <section id="act-2" class="lumen-scene" data-slot="acts" aria-label="Act two: weather">
+    </section>
+    <section id="act-3" class="lumen-scene" data-slot="acts" aria-label="Act three: arrival">
+    </section>
+    <section id="score" class="lumen-scene" data-slot="score" aria-label="Musical score">
+    </section>
+    <section id="credits" class="lumen-scene" data-slot="credits" aria-label="Credits">
+    </section>
+  </main>
+  <noscript>
+    <div class="lumen-noscript">
+      <h1>The Long Way North</h1>
+      <p>A single-page cinematic story told in three acts, built with Lumen.</p>
+      <section aria-label="Title card">
+      </section>
+      <section aria-label="Act one: departure">
+      </section>
+      <section aria-label="Act two: weather">
+      </section>
+      <section aria-label="Act three: arrival">
+      </section>
+      <section aria-label="Musical score">
+      </section>
+      <section aria-label="Credits">
+      </section>
+    </div>
+  </noscript>
+  <script type="application/json" id="lumen-scene-ir">{"version":1,"minRuntime":"0.1.0","site":{"id":"cinematic-story","title":"The Long Way North","description":"A single-page cinematic story told in three acts, built with Lumen.","locale":"en"},"template":"cinematic-spa","theme":{"colors":{"background":"#08080c","foreground":"#efece4","accent":"#b0874f","surface":"#12121a","caption-bg":"rgba(8, 8, 12, 0.55)","color-bg":"#0b0d10","color-fg":"#f5f7fa","color-accent":"#6aa9ff","color-muted":"#8b93a1"},"typeScale":{"caption":{"size":"0.875rem","lineHeight":1.4,"weight":400},"body":{"size":"1rem","lineHeight":1.5,"weight":400},"title":{"size":"1.75rem","lineHeight":1.25,"weight":600},"display":{"size":"3rem","lineHeight":1.1,"weight":700}},"spacing":{"xs":"0.25rem","sm":"0.5rem","md":"1rem","lg":"2rem","xl":"4rem"},"motion":{"standard":[0.2,0,0,1],"emphasized":[0.3,0,0,1],"duration":{"fast":150,"medium":500,"slow":600,"normal":300}}},"nodes":[{"id":"node-title-card","kind":"group","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":10,"visible":true,"bindings":[{"trackId":"track-title-card","property":"material.opacity"}],"children":[{"id":"title-text","kind":"dom","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":11,"visible":true,"bindings":[{"trackId":"track-title-card","property":"transform.position"}],"children":[],"meta":{"cinematic-story":{"slot":"title-card","a11y":{"label":"Title card"}}},"html":"\u003ch1\u003eThe Long Way North\u003c/h1\u003e\u003cp\u003eA story in three acts\u003c/p\u003e"}],"meta":{"cinematic-story":{"slot":"title-card","a11y":{"label":"Title card"},"theme":{"colors":{"background":"#08080c","foreground":"#efece4","accent":"#b0874f","surface":"#12121a","caption-bg":"rgba(8, 8, 12, 0.55)","color-bg":"#0b0d10","color-fg":"#f5f7fa","color-accent":"#6aa9ff","color-muted":"#8b93a1"},"typeScale":{"caption":{"size":"0.875rem","lineHeight":1.4,"weight":400},"body":{"size":"1rem","lineHeight":1.5,"weight":400},"title":{"size":"1.75rem","lineHeight":1.25,"weight":600},"display":{"size":"3rem","lineHeight":1.1,"weight":700}},"spacing":{"xs":"0.25rem","sm":"0.5rem","md":"1rem","lg":"2rem","xl":"4rem"},"motion":{"standard":[0.2,0,0,1],"emphasized":[0.3,0,0,1],"duration":{"fast":150,"medium":500,"slow":600,"normal":300}}},"sequenceStart":0,"sequenceEnd":3,"transition":"crossfade","reducedMotion":{"transition":"cut","easing":"linear"},"role":"title-card"}}},{"id":"node-act-1","kind":"group","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":5,"visible":true,"bindings":[{"trackId":"track-act-1","property":"material.opacity"}],"children":[{"id":"act-1-video","kind":"video-plane","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":6,"visible":true,"bindings":[{"trackId":"track-act-1","property":"transform.position"}],"children":[],"meta":{"cinematic-story":{"slot":"acts","a11y":{"label":"Act one: departure"}}},"assetId":"act-one-film","scrubbed":false},{"id":"act-1-caption","kind":"dom","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":6,"visible":true,"bindings":[{"trackId":"track-act-1","property":"transform.position"}],"children":[],"meta":{"cinematic-story":{"slot":"acts","a11y":{"label":"Act one: departure"}}},"html":"\u003ch2\u003eI. Departure\u003c/h2\u003e\u003cp\u003eThe road unspools behind.\u003c/p\u003e"}],"meta":{"cinematic-story":{"slot":"acts","a11y":{"label":"Act one: departure"},"theme":{"colors":{"background":"#08080c","foreground":"#efece4","accent":"#b0874f","surface":"#12121a","caption-bg":"rgba(8, 8, 12, 0.55)","color-bg":"#0b0d10","color-fg":"#f5f7fa","color-accent":"#6aa9ff","color-muted":"#8b93a1"},"typeScale":{"caption":{"size":"0.875rem","lineHeight":1.4,"weight":400},"body":{"size":"1rem","lineHeight":1.5,"weight":400},"title":{"size":"1.75rem","lineHeight":1.25,"weight":600},"display":{"size":"3rem","lineHeight":1.1,"weight":700}},"spacing":{"xs":"0.25rem","sm":"0.5rem","md":"1rem","lg":"2rem","xl":"4rem"},"motion":{"standard":[0.2,0,0,1],"emphasized":[0.3,0,0,1],"duration":{"fast":150,"medium":500,"slow":600,"normal":300}}},"sequenceStart":1.8,"sequenceEnd":7.8,"transition":"crossfade","reducedMotion":{"transition":"cut","easing":"linear"},"actIndex":0,"durationHint":6}}},{"id":"node-act-2","kind":"group","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":5,"visible":true,"bindings":[{"trackId":"track-act-2","property":"material.opacity"}],"children":[{"id":"act-2-caption","kind":"dom","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":6,"visible":true,"bindings":[{"trackId":"track-act-2","property":"transform.position"}],"children":[],"meta":{"cinematic-story":{"slot":"acts","a11y":{"label":"Act two: weather"}},"durationHint":8},"html":"\u003ch2\u003eII. Weather\u003c/h2\u003e\u003cp\u003eThe storm decides the pace.\u003c/p\u003e"}],"meta":{"cinematic-story":{"slot":"acts","a11y":{"label":"Act two: weather"},"theme":{"colors":{"background":"#08080c","foreground":"#efece4","accent":"#b0874f","surface":"#12121a","caption-bg":"rgba(8, 8, 12, 0.55)","color-bg":"#0b0d10","color-fg":"#f5f7fa","color-accent":"#6aa9ff","color-muted":"#8b93a1"},"typeScale":{"caption":{"size":"0.875rem","lineHeight":1.4,"weight":400},"body":{"size":"1rem","lineHeight":1.5,"weight":400},"title":{"size":"1.75rem","lineHeight":1.25,"weight":600},"display":{"size":"3rem","lineHeight":1.1,"weight":700}},"spacing":{"xs":"0.25rem","sm":"0.5rem","md":"1rem","lg":"2rem","xl":"4rem"},"motion":{"standard":[0.2,0,0,1],"emphasized":[0.3,0,0,1],"duration":{"fast":150,"medium":500,"slow":600,"normal":300}}},"sequenceStart":6.6,"sequenceEnd":14.6,"transition":"crossfade","reducedMotion":{"transition":"cut","easing":"linear"},"actIndex":1,"durationHint":8}}},{"id":"node-act-3","kind":"group","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":5,"visible":true,"bindings":[{"trackId":"track-act-3","property":"material.opacity"}],"children":[{"id":"act-3-still","kind":"sprite","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":6,"visible":true,"bindings":[{"trackId":"track-act-3","property":"transform.position"}],"children":[],"meta":{"cinematic-story":{"slot":"acts","a11y":{"label":"Act three: arrival"}}},"assetId":"act-three-still"},{"id":"act-3-caption","kind":"dom","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":6,"visible":true,"bindings":[{"trackId":"track-act-3","property":"transform.position"}],"children":[],"meta":{"cinematic-story":{"slot":"acts","a11y":{"label":"Act three: arrival"}}},"html":"\u003ch2\u003eIII. Arrival\u003c/h2\u003e\u003cp\u003eNorth is a feeling, not a place.\u003c/p\u003e"}],"meta":{"cinematic-story":{"slot":"acts","a11y":{"label":"Act three: arrival"},"theme":{"colors":{"background":"#08080c","foreground":"#efece4","accent":"#b0874f","surface":"#12121a","caption-bg":"rgba(8, 8, 12, 0.55)","color-bg":"#0b0d10","color-fg":"#f5f7fa","color-accent":"#6aa9ff","color-muted":"#8b93a1"},"typeScale":{"caption":{"size":"0.875rem","lineHeight":1.4,"weight":400},"body":{"size":"1rem","lineHeight":1.5,"weight":400},"title":{"size":"1.75rem","lineHeight":1.25,"weight":600},"display":{"size":"3rem","lineHeight":1.1,"weight":700}},"spacing":{"xs":"0.25rem","sm":"0.5rem","md":"1rem","lg":"2rem","xl":"4rem"},"motion":{"standard":[0.2,0,0,1],"emphasized":[0.3,0,0,1],"duration":{"fast":150,"medium":500,"slow":600,"normal":300}}},"sequenceStart":13.4,"sequenceEnd":19.4,"transition":"crossfade","reducedMotion":{"transition":"cut","easing":"linear"},"actIndex":2,"durationHint":6}}},{"id":"node-credits","kind":"group","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":10,"visible":true,"bindings":[{"trackId":"track-credits","property":"material.opacity"}],"children":[{"id":"credits-roll","kind":"dom","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":11,"visible":true,"bindings":[{"trackId":"track-credits","property":"transform.position"}],"children":[],"meta":{"cinematic-story":{"slot":"credits","a11y":{"label":"Credits"}}},"html":"\u003cp\u003eDirected by Lumen · Shot on location\u003c/p\u003e"}],"meta":{"cinematic-story":{"slot":"credits","a11y":{"label":"Credits"},"theme":{"colors":{"background":"#08080c","foreground":"#efece4","accent":"#b0874f","surface":"#12121a","caption-bg":"rgba(8, 8, 12, 0.55)","color-bg":"#0b0d10","color-fg":"#f5f7fa","color-accent":"#6aa9ff","color-muted":"#8b93a1"},"typeScale":{"caption":{"size":"0.875rem","lineHeight":1.4,"weight":400},"body":{"size":"1rem","lineHeight":1.5,"weight":400},"title":{"size":"1.75rem","lineHeight":1.25,"weight":600},"display":{"size":"3rem","lineHeight":1.1,"weight":700}},"spacing":{"xs":"0.25rem","sm":"0.5rem","md":"1rem","lg":"2rem","xl":"4rem"},"motion":{"standard":[0.2,0,0,1],"emphasized":[0.3,0,0,1],"duration":{"fast":150,"medium":500,"slow":600,"normal":300}}},"sequenceStart":18.2,"sequenceEnd":22.2,"transition":"crossfade","reducedMotion":{"transition":"cut","easing":"linear"},"role":"credits"}}},{"id":"node-score","kind":"dom","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":1,"visible":true,"bindings":[],"children":[],"meta":{"cinematic-story":{"slot":"score","a11y":{"label":"Musical score"},"assetId":"story-score","autoplay":true,"loop":false,"totalDuration":22.2}},"html":""}],"tracks":[{"id":"track-title-card","target":"node-title-card","driver":"time","range":[0,3],"keyframes":[{"t":0,"value":0,"easing":"linear"},{"t":1.2,"value":1,"easing":"linear"},{"t":1.8,"value":1,"easing":"linear"},{"t":3,"value":0,"easing":"linear"}]},{"id":"track-act-1","target":"node-act-1","driver":"time","range":[1.8,7.8],"keyframes":[{"t":1.8,"value":0,"easing":"linear"},{"t":3,"value":1,"easing":"linear"},{"t":6.6,"value":1,"easing":"linear"},{"t":7.8,"value":0,"easing":"linear"}]},{"id":"track-act-2","target":"node-act-2","driver":"time","range":[6.6,14.6],"keyframes":[{"t":6.6,"value":0,"easing":"linear"},{"t":7.8,"value":1,"easing":"linear"},{"t":13.4,"value":1,"easing":"linear"},{"t":14.6,"value":0,"easing":"linear"}]},{"id":"track-act-3","target":"node-act-3","driver":"time","range":[13.4,19.4],"keyframes":[{"t":13.4,"value":0,"easing":"linear"},{"t":14.6,"value":1,"easing":"linear"},{"t":18.2,"value":1,"easing":"linear"},{"t":19.4,"value":0,"easing":"linear"}]},{"id":"track-credits","target":"node-credits","driver":"time","range":[18.2,22.2],"keyframes":[{"t":18.2,"value":0,"easing":"linear"},{"t":19.4,"value":1,"easing":"linear"},{"t":21,"value":1,"easing":"linear"},{"t":22.2,"value":0,"easing":"linear"}]}],"bindings":[{"id":"kbd-next","source":"keyboard","targetNodeId":"node-act-1","targetTrackId":"track-act-1","mapping":{"inputRange":[0,1],"outputRange":[1.8,7.8]},"a11yFallback":"steps"},{"id":"kbd-prev","source":"keyboard","targetNodeId":"node-act-2","targetTrackId":"track-act-2","mapping":{"inputRange":[0,1],"outputRange":[6.6,14.6]},"a11yFallback":"steps"}],"assets":[{"id":"act-one-film","src":"https://media.example.com/lumen/north-act1.mp4","kind":"video","preload":"critical","duration":6},{"id":"story-score","src":"https://media.example.com/lumen/north-score.mp3","kind":"audio","preload":"eager"},{"id":"act-three-still","src":"https://media.example.com/lumen/north-act3.jpg","kind":"image","preload":"lazy"}],"hydration":{"ssr":true,"islands":["node-title-card","node-act-1","node-act-2","node-act-3","node-credits"]},"a11y":{"title-card":{"label":"Title card"},"act-1":{"label":"Act one: departure"},"act-2":{"label":"Act two: weather"},"act-3":{"label":"Act three: arrival"},"score":{"label":"Musical score"},"credits":{"label":"Credits"}}}</script>
+  <script type="module" src="./main.b0e297c3bd.js"></script>
+</body>
+</html>

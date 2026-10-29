@@ -1,0 +1,36 @@
+{
+  "target": "static",
+  "entry": "index.html",
+  "files": [
+    {
+      "path": "main.942e4f6905.js",
+      "bytes": 10117,
+      "gzipBytes": 2316,
+      "hash": "942e4f6905",
+      "role": "entry"
+    },
+    {
+      "path": "index.html",
+      "bytes": 14618,
+      "gzipBytes": 2938,
+      "hash": "af92bcb4b9",
+      "role": "ssr"
+    },
+    {
+      "path": "hydration-manifest.61ed351468.json",
+      "bytes": 984,
+      "gzipBytes": 196,
+      "hash": "61ed351468",
+      "role": "asset"
+    },
+    {
+      "path": "index.html",
+      "bytes": 14618,
+      "gzipBytes": 2938,
+      "hash": "af92bcb4b9",
+      "role": "ssr"
+    }
+  ],
+  "generatedAt": "2026-08-28T16:06:40.892Z",
+  "engineVersion": "0.1.0"
+}

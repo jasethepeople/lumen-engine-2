@@ -1,0 +1,13 @@
+{
+  "irVersion": 1,
+  "islands": [
+    {
+      "id": "node-captions",
+      "module": "main.js",
+      "trigger": "visible",
+      "props": {
+        "sceneId": "node-captions"
+      }
+    }
+  ]
+}

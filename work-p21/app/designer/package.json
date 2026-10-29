@@ -1,0 +1,29 @@
+{
+  "name": "@lumen/app-designer",
+  "version": "0.1.0",
+  "description": "Lumen advanced motion designer core: timeline editor model with undo, easing curve library, config<->timeline serialization, motion graph with reduced-motion overlay, and frame-step scrubbing (framework-free; a React UI layer comes later).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/"
+  },
+  "dependencies": {
+    "@lumen/contracts": "*",
+    "@lumen/config": "*",
+    "@lumen/runtime": "*",
+    "@lumen/scene": "*"
+  },
+  "license": "UNLICENSED"
+}

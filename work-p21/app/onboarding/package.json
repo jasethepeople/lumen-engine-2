@@ -1,0 +1,23 @@
+{
+  "name": "@lumen/app-onboarding",
+  "version": "0.1.0",
+  "description": "Creator onboarding flow engine for the Lumen Builder: finite step wizard (welcome -> template -> hero media -> chapters -> theme -> motion -> publish), per-step validation, tooltips/checklists, draft serialize/resume, EngineConfig assembly, and ProjectStore persistence.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/"
+  },
+  "license": "UNLICENSED"
+}

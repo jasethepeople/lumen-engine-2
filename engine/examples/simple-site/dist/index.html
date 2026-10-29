@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Lumen Simple Site</title>
+  <meta name="description" content="A minimal scroll-scrubbed video site built with the Lumen engine.">
+  <meta property="og:title" content="Lumen Simple Site">
+  <meta property="og:description" content="A minimal scroll-scrubbed video site built with the Lumen engine.">
+  <meta property="og:type" content="website">
+  <script type="importmap">{"imports":{"@lumen/runtime":"./vendor/runtime/index.js","@lumen/kernel":"./vendor/kernel/index.js","@lumen/scene":"./vendor/scene/index.js","@lumen/rendering":"./vendor/rendering/index.js","@lumen/assets":"./vendor/assets/index.js","@lumen/interaction":"./vendor/interaction/index.js","@lumen/contracts":"./vendor/contracts/index.js"}}</script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    html,body{margin:0;padding:0}
+    :root {
+      --lumen-color-background: #0b0b10;
+      --lumen-color-foreground: #f5f5f0;
+      --lumen-color-accent: #8ab4ff;
+      --lumen-color-caption-bg: rgba(0, 0, 0, 0.55);
+      --lumen-color-color-bg: #0b0d10;
+      --lumen-color-color-fg: #f5f7fa;
+      --lumen-color-color-accent: #6aa9ff;
+      --lumen-color-color-muted: #8b93a1;
+      --lumen-type-caption-size: 0.875rem;
+      --lumen-type-caption-line-height: 1.4;
+      --lumen-type-caption-weight: 400;
+      --lumen-type-body-size: 1rem;
+      --lumen-type-body-line-height: 1.5;
+      --lumen-type-body-weight: 400;
+      --lumen-type-title-size: 1.75rem;
+      --lumen-type-title-line-height: 1.25;
+      --lumen-type-title-weight: 600;
+      --lumen-type-display-size: 3rem;
+      --lumen-type-display-line-height: 1.1;
+      --lumen-type-display-weight: 700;
+      --lumen-space-xs: 0.25rem;
+      --lumen-space-sm: 0.5rem;
+      --lumen-space-md: 1rem;
+      --lumen-space-lg: 2rem;
+      --lumen-space-xl: 4rem;
+      --lumen-duration-fast: 150ms;
+      --lumen-duration-medium: 300ms;
+      --lumen-duration-slow: 600ms;
+      --lumen-duration-normal: 300ms;
+      --lumen-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+      --lumen-ease-emphasized: cubic-bezier(0.3, 0, 0, 1);
+    }
+    .lumen-root{min-height:100vh;min-height:100dvh;touch-action:pan-y}
+    .lumen-scene{position:relative}
+    .lumen-canvas{display:block;width:100%;height:100%}
+  </style>
+</head>
+<body>
+  <main class="lumen-root" id="lumen-root" data-site="simple-site">
+    <section id="hero" class="lumen-scene" data-slot="stage" aria-label="Hero background video" data-lumen-skeleton="1">
+          <div class="lumen-spatial" data-node="node-hero-video" data-asset="hero-video" role="img" aria-label="Hero background video"></div>
+          <section class="lumen-scene" data-node="node-captions">
+            <div class="lumen-dom" data-node="caption-title">
+              <h1>Lumen</h1><p>Scroll-driven cinematic sites from a single config.</p>
+            </div>
+            <div class="lumen-dom" data-node="caption-sub">
+              <p>Built with contracts, kernels and templates — no framework lock-in.</p>
+            </div>
+          </section>
+    </section>
+    <section id="captions" class="lumen-scene" data-slot="caption" aria-label="Introduction captions">
+      <p class="lumen-visually-hidden">Title and tagline shown over the hero video.</p>
+    </section>
+  </main>
+  <noscript>
+    <div class="lumen-noscript">
+      <h1>Lumen Simple Site</h1>
+      <p>A minimal scroll-scrubbed video site built with the Lumen engine.</p>
+      <section aria-label="Hero background video">
+        <p>A slow pan over an abstract landscape, scrubbed by scrolling.</p>
+      </section>
+      <section aria-label="Introduction captions">
+        <p>Title and tagline shown over the hero video.</p>
+      </section>
+    </div>
+  </noscript>
+  <script type="application/json" id="lumen-scene-ir">{"version":1,"minRuntime":"0.1.0","site":{"id":"simple-site","title":"Lumen Simple Site","description":"A minimal scroll-scrubbed video site built with the Lumen engine.","locale":"en"},"template":"scroll-video","theme":{"colors":{"background":"#0b0b10","foreground":"#f5f5f0","accent":"#8ab4ff","caption-bg":"rgba(0, 0, 0, 0.55)","color-bg":"#0b0d10","color-fg":"#f5f7fa","color-accent":"#6aa9ff","color-muted":"#8b93a1"},"typeScale":{"caption":{"size":"0.875rem","lineHeight":1.4,"weight":400},"body":{"size":"1rem","lineHeight":1.5,"weight":400},"title":{"size":"1.75rem","lineHeight":1.25,"weight":600},"display":{"size":"3rem","lineHeight":1.1,"weight":700}},"spacing":{"xs":"0.25rem","sm":"0.5rem","md":"1rem","lg":"2rem","xl":"4rem"},"motion":{"standard":[0.2,0,0,1],"emphasized":[0.3,0,0,1],"duration":{"fast":150,"medium":300,"slow":600,"normal":300}}},"nodes":[{"id":"node-hero-video","kind":"video-plane","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":0,"visible":true,"bindings":[{"trackId":"track-hero-scrub","property":"playback.time","easing":"linear"}],"children":[],"meta":{"scroll-video":{"slot":"stage","a11y":{"label":"Hero background video","summary":"A slow pan over an abstract landscape, scrubbed by scrolling."},"theme":{"colors":{"background":"#0b0b10","foreground":"#f5f5f0","accent":"#8ab4ff","caption-bg":"rgba(0, 0, 0, 0.55)","color-bg":"#0b0d10","color-fg":"#f5f7fa","color-accent":"#6aa9ff","color-muted":"#8b93a1"},"typeScale":{"caption":{"size":"0.875rem","lineHeight":1.4,"weight":400},"body":{"size":"1rem","lineHeight":1.5,"weight":400},"title":{"size":"1.75rem","lineHeight":1.25,"weight":600},"display":{"size":"3rem","lineHeight":1.1,"weight":700}},"spacing":{"xs":"0.25rem","sm":"0.5rem","md":"1rem","lg":"2rem","xl":"4rem"},"motion":{"standard":[0.2,0,0,1],"emphasized":[0.3,0,0,1],"duration":{"fast":150,"medium":300,"slow":600,"normal":300}}}}},"assetId":"hero-video","scrubbed":true},{"id":"node-captions","kind":"group","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":1,"visible":true,"bindings":[{"trackId":"track-captions","property":"material.opacity"}],"children":[{"id":"caption-title","kind":"dom","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":2,"visible":true,"bindings":[{"trackId":"track-captions","property":"transform.position"}],"children":[],"meta":{"scroll-video":{"slot":"caption","a11y":{"label":"Introduction captions","summary":"Title and tagline shown over the hero video."}}},"html":"\u003ch1\u003eLumen\u003c/h1\u003e\u003cp\u003eScroll-driven cinematic sites from a single config.\u003c/p\u003e"},{"id":"caption-sub","kind":"dom","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":2,"visible":true,"bindings":[{"trackId":"track-captions","property":"transform.position"}],"children":[],"meta":{"scroll-video":{"slot":"caption","a11y":{"label":"Introduction captions","summary":"Title and tagline shown over the hero video."}}},"html":"\u003cp\u003eBuilt with contracts, kernels and templates — no framework lock-in.\u003c/p\u003e"}],"meta":{"scroll-video":{"slot":"caption","a11y":{"label":"Introduction captions","summary":"Title and tagline shown over the hero video."}}}}],"tracks":[{"id":"track-hero-scrub","target":"node-hero-video","driver":"scroll","range":[0,12],"keyframes":[{"t":0,"value":0,"easing":"linear"},{"t":12,"value":8,"easing":"linear"}]},{"id":"track-captions","target":"node-captions","driver":"scroll","range":[8,12],"keyframes":[{"t":8,"value":0,"easing":"ease-in"},{"t":8.6,"value":1},{"t":11.4,"value":1},{"t":12,"value":0,"easing":"ease-out"}]}],"bindings":[{"id":"scroll-main","source":"scroll","targetNodeId":"node-hero-video","targetTrackId":"track-hero-scrub","mapping":{"inputRange":[0,1],"outputRange":[0,12]},"a11yFallback":"steps"}],"assets":[{"id":"hero-video","src":"https://media.example.com/lumen/hero.mp4","kind":"video","preload":"critical","duration":8},{"id":"hero-poster","src":"https://media.example.com/lumen/hero-poster.jpg","kind":"image","preload":"eager"}],"hydration":{"ssr":true,"islands":["node-captions"]},"a11y":{"hero":{"label":"Hero background video","summary":"A slow pan over an abstract landscape, scrubbed by scrolling."},"captions":{"label":"Introduction captions","summary":"Title and tagline shown over the hero video."}}}</script>
+  <script type="module" src="./main.1bbf951474.js"></script>
+</body>
+</html>

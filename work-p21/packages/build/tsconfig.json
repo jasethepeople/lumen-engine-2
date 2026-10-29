@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "noEmit": false,
+    "lib": [
+      "ES2022"
+    ],
+    "paths": {
+      "@lumen/contracts": [
+        "../../contracts/dist/index.d.ts"
+      ]
+    }
+  },
+  "include": [
+    "src"
+  ]
+}

@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-ink-950 text-ink-200 antialiased;
+    font-family:
+      ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+  input,
+  select,
+  textarea {
+    @apply bg-ink-900 border border-ink-700 rounded px-2 py-1 text-sm text-ink-200 outline-none;
+  }
+  input:focus,
+  select:focus,
+  textarea:focus {
+    @apply border-ink-600;
+  }
+  button {
+    @apply text-sm;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply px-3 py-1.5 rounded border border-ink-700 bg-ink-800 text-ink-200 hover:bg-ink-700 transition-colors;
+  }
+  .btn-primary {
+    @apply px-3 py-1.5 rounded border border-accent/40 bg-ink-800 text-accent hover:bg-ink-700 transition-colors;
+  }
+  .btn-danger {
+    @apply px-2 py-1 rounded border border-ink-700 text-ink-400 hover:text-red-300 hover:border-red-900 transition-colors;
+  }
+  .field-label {
+    @apply block text-[11px] uppercase tracking-wider text-ink-400 mb-1;
+  }
+  .card {
+    @apply border border-ink-800 rounded-lg bg-ink-900/60 p-4;
+  }
+  .section-title {
+    @apply text-xs uppercase tracking-[0.2em] text-ink-400 mb-3;
+  }
+}

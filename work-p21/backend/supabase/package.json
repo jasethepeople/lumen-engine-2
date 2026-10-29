@@ -1,0 +1,23 @@
+{
+  "name": "@lumen/backend-supabase",
+  "version": "0.1.0",
+  "description": "Hosted Supabase bindings for the Lumen Builder: per-domain modules mirroring the local @lumen/app-* packages behind one facade (LumenBackend), plus an offline mode delegating to the local in-memory packages. Zero runtime dependencies — any structurally-compatible Supabase client is accepted via constructor injection (see SupabaseClientLike). Table/column/bucket names follow backend/SCHEMA.md.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/"
+  },
+  "license": "UNLICENSED"
+}

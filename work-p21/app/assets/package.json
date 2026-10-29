@@ -1,0 +1,28 @@
+{
+  "name": "@lumen/app-assets",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Lumen Builder — hosted asset pipeline: upload/optimization job queue, lumen-media CLI executor, hybrid manifest generation, device-class pipeline profiles, and an asset library store.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/"
+  },
+  "dependencies": {
+    "@lumen/assets": "*",
+    "@lumen/build": "*",
+    "@lumen/contracts": "*"
+  },
+  "license": "UNLICENSED"
+}

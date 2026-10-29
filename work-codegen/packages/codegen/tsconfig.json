@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "rootDir": "../..",
+    "outDir": "dist",
+    "paths": {
+      "@lumen/contracts": ["../../contracts/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

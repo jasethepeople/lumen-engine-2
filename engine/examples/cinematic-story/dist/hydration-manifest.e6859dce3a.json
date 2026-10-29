@@ -1,0 +1,45 @@
+{
+  "irVersion": 1,
+  "islands": [
+    {
+      "id": "node-title-card",
+      "module": "main.js",
+      "trigger": "visible",
+      "props": {
+        "sceneId": "node-title-card"
+      }
+    },
+    {
+      "id": "node-act-1",
+      "module": "main.js",
+      "trigger": "visible",
+      "props": {
+        "sceneId": "node-act-1"
+      }
+    },
+    {
+      "id": "node-act-2",
+      "module": "main.js",
+      "trigger": "visible",
+      "props": {
+        "sceneId": "node-act-2"
+      }
+    },
+    {
+      "id": "node-act-3",
+      "module": "main.js",
+      "trigger": "visible",
+      "props": {
+        "sceneId": "node-act-3"
+      }
+    },
+    {
+      "id": "node-credits",
+      "module": "main.js",
+      "trigger": "visible",
+      "props": {
+        "sceneId": "node-credits"
+      }
+    }
+  ]
+}

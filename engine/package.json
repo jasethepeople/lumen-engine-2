@@ -1,0 +1,36 @@
+{
+  "name": "lumen-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lumen — a scroll-driven cinematic web engine: config → template composition → SceneIR → codegen → build pipeline → runtime hydration.",
+  "keywords": [
+    "scroll-driven",
+    "cinematic",
+    "webgl",
+    "video-scrub",
+    "codegen",
+    "ssr",
+    "scene-graph",
+    "animation-engine"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lumen-engine/lumen.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
+  "workspaces": ["packages/*", "contracts", "examples/*", "app/*"],
+  "scripts": {
+    "build": "bash scripts/build-all.sh",
+    "link": "node scripts/link-workspaces.mjs",
+    "test": "node --test tests/e2e/",
+    "example": "node examples/simple-site/build-example.mjs",
+    "typecheck": "tsc -p tsconfig.build.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

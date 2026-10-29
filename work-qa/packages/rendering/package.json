@@ -1,0 +1,36 @@
+{
+  "name": "@lumen/rendering",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Lumen engine rendering layer: DOM, Canvas2D and WebGL2 renderers behind IRenderer, backend selection, adaptive quality.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/"
+  },
+  "peerDependencies": {
+    "three": "^0.160.0"
+  },
+  "peerDependenciesMeta": {
+    "three": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@lumen/contracts": "0.1.0",
+    "@lumen/scene": "0.1.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "license": "UNLICENSED"
+}

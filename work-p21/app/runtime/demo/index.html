@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>@lumen/app-runtime demo</title>
+  <meta name="description" content="Static demo for @lumen/app-runtime: one config in, live engine out. Switch between scroll-cinema-landing, cinematic-story, and product-showcase.">
+  <!--
+    Static demo — no bundler. The import map mirrors the generated-site
+    pattern (see examples/simple-site/dist/index.html), but points at the
+    compiled workspace dists so it runs straight from a repo checkout:
+    serve the engine root over HTTP (e.g. `python3 -m http.server`) and open
+    /app/runtime/demo/.
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "@lumen/app-runtime": "../../app/runtime/dist/index.js",
+      "@lumen/runtime": "../../packages/runtime/dist/index.js",
+      "@lumen/codegen": "../../packages/codegen/dist/index.js",
+      "@lumen/templates": "../../packages/templates/dist/index.js",
+      "@lumen/config": "../../packages/config/dist/index.js",
+      "@lumen/kernel": "../../packages/kernel/dist/index.js",
+      "@lumen/scene": "../../packages/scene/dist/index.js",
+      "@lumen/rendering": "../../packages/rendering/dist/index.js",
+      "@lumen/assets": "../../packages/assets/dist/index.js",
+      "@lumen/interaction": "../../packages/interaction/dist/index.js",
+      "@lumen/contracts": "../../contracts/dist/index.js"
+    }
+  }
+  </script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:#0b0b10;color:#f5f5f0;font:16px/1.5 system-ui,sans-serif}
+    header{position:sticky;top:0;z-index:10;display:flex;gap:.5rem;align-items:center;padding:.75rem 1rem;background:rgba(11,11,16,.9);backdrop-filter:blur(6px);border-bottom:1px solid #26262e}
+    header h1{font-size:1rem;margin:0 auto 0 0;font-weight:600}
+    header button{background:#1b1b22;color:#f5f5f0;border:1px solid #3a3a46;border-radius:6px;padding:.4rem .8rem;cursor:pointer}
+    header button[aria-pressed="true"]{background:#e0b45c;color:#0b0b10;border-color:#e0b45c}
+    #status{padding:0 1rem;font-size:.85rem;color:#9aa0ab;min-height:1.4em}
+    .lumen-root{min-height:100vh;min-height:100dvh;touch-action:pan-y}
+    .lumen-scene{position:relative}
+    .lumen-canvas{display:block;width:100%;height:100%}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>@lumen/app-runtime demo</h1>
+    <button type="button" data-template="scroll-cinema-landing" aria-pressed="true">scroll-cinema-landing</button>
+    <button type="button" data-template="cinematic-story" aria-pressed="false">cinematic-story</button>
+    <button type="button" data-template="product-showcase" aria-pressed="false">product-showcase</button>
+  </header>
+  <p id="status" role="status"></p>
+  <main class="lumen-root" id="lumen-root"></main>
+  <noscript><p>This demo requires JavaScript.</p></noscript>
+
+  <script type="module">
+    import { createLumenApp, listTemplates } from '@lumen/app-runtime';
+
+    const MEDIA = 'https://media.example.com/lumen';
+
+    // Three small example configs, one per specialization template.
+    const CONFIGS = {
+      'scroll-cinema-landing': {
+        version: 3,
+        id: 'demo-cinema-landing',
+        template: 'scroll-video',
+        meta: { title: 'Cinema Landing', description: 'Scroll-cinema-landing demo', locale: 'en' },
+        theme: {},
+        assets: [
+          { id: 'hero-video', src: `${MEDIA}/hero.mp4`, kind: 'video', duration: 8, preload: 'critical' },
+        ],
+        scenes: [
+          {
+            id: 'stage', slot: 'stage',
+            nodes: [{ id: 'stage-video', kind: 'video-plane', assetId: 'hero-video' }],
+            track: { driver: 'scroll', durationOrRange: 12 },
+            a11y: { label: 'Hero video' },
+          },
+          {
+            id: 'caption', slot: 'hero-caption',
+            nodes: [{ id: 'cap', kind: 'dom', html: '<h1>Cinema Landing</h1><p>Scroll to scrub.</p>' }],
+            track: { driver: 'scroll', durationOrRange: 12 },
+            a11y: { label: 'Hero caption' },
+          },
+          {
+            id: 'ch-1', slot: 'chapters',
+            nodes: [{ id: 'c1', kind: 'dom', html: '<p>Chapter one.</p>' }],
+            track: { driver: 'scroll', durationOrRange: 4 },
+            a11y: { label: 'Chapter one' },
+          },
+          {
+            id: 'outro', slot: 'outro',
+            nodes: [{ id: 'out', kind: 'dom', html: '<p>Fin.</p>' }],
+            track: { driver: 'scroll', durationOrRange: 2 },
+            a11y: { label: 'Outro' },
+          },
+        ],
+        interactions: [
+          { id: 'scroll-main', source: 'scroll', scene: 'stage', inputRange: [0, 1], a11yFallback: 'steps' },
+        ],
+        build: { target: 'static', ssr: true, minify: false },
+      },
+
+      'cinematic-story': {
+        version: 3,
+        id: 'demo-cinematic-story',
+        template: 'cinematic-spa',
+        meta: { title: 'Cinematic Story', description: 'Cinematic-story demo', locale: 'en' },
+        theme: {},
+        assets: [],
+        scenes: [
+          {
+            id: 'title', slot: 'title-card',
+            nodes: [{ id: 't', kind: 'dom', html: '<h1>A Short Story</h1>' }],
+            track: { driver: 'time', durationOrRange: 3 },
+            a11y: { label: 'Title card' },
+          },
+          {
+            id: 'act-1', slot: 'acts',
+            nodes: [{ id: 'a1', kind: 'dom', html: '<p>Act one: the setup.</p>' }],
+            track: { driver: 'time', durationOrRange: 5 },
+            a11y: { label: 'Act one' },
+          },
+          {
+            id: 'act-2', slot: 'acts',
+            nodes: [{ id: 'a2', kind: 'dom', html: '<p>Act two: the turn.</p>' }],
+            track: { driver: 'time', durationOrRange: 5 },
+            a11y: { label: 'Act two' },
+          },
+          {
+            id: 'credits', slot: 'credits',
+            nodes: [{ id: 'cr', kind: 'dom', html: '<p>Made with Lumen.</p>' }],
+            track: { driver: 'time', durationOrRange: 4 },
+            a11y: { label: 'Credits' },
+          },
+        ],
+        interactions: [],
+        build: { target: 'static', ssr: true, minify: false },
+      },
+
+      'product-showcase': {
+        version: 3,
+        id: 'demo-product-showcase',
+        template: 'viewer-3d',
+        meta: { title: 'Product Showcase', description: 'Product-showcase demo', locale: 'en' },
+        theme: {},
+        assets: [
+          { id: 'product-model', src: `${MEDIA}/product.glb`, kind: 'model', preload: 'critical' },
+        ],
+        scenes: [
+          {
+            id: 'stage', slot: 'stage',
+            nodes: [{ id: 'model', kind: 'mesh', assetId: 'product-model' }],
+            track: { driver: 'scroll', durationOrRange: 10 },
+            a11y: { label: 'Product model' },
+          },
+          {
+            id: 'hs-1', slot: 'hotspots',
+            nodes: [{ id: 'h1', kind: 'dom', html: '<p>Machined unibody.</p>', meta: { anchor: [0, 0.8, 0.4] } }],
+            track: { driver: 'scroll', durationOrRange: 5 },
+            a11y: { label: 'Hotspot: body' },
+          },
+          {
+            id: 'hs-2', slot: 'hotspots',
+            nodes: [{ id: 'h2', kind: 'dom', html: '<p>USB-C, bottom edge.</p>', meta: { anchor: [0.5, 0.1, 0] } }],
+            track: { driver: 'scroll', durationOrRange: 5 },
+            a11y: { label: 'Hotspot: port' },
+          },
+          {
+            id: 'spec', slot: 'spec-sheet',
+            nodes: [{ id: 's', kind: 'dom', html: '<dl><dt>Weight</dt><dd>220 g</dd><dt>Battery</dt><dd>24 h</dd></dl>' }],
+            track: { driver: 'scroll', durationOrRange: 2 },
+            a11y: { label: 'Spec sheet' },
+          },
+          {
+            id: 'cw', slot: 'colorways',
+            nodes: [
+              { id: 'c1', kind: 'dom', html: '<button type="button">Onyx</button>', meta: { variant: { material: 'onyx', color: '#111114' } } },
+              { id: 'c2', kind: 'dom', html: '<button type="button">Pearl</button>', meta: { variant: { material: 'pearl', color: '#eceae4' } } },
+            ],
+            track: { driver: 'scroll', durationOrRange: 1 },
+            a11y: { label: 'Colorways' },
+          },
+        ],
+        interactions: [
+          { id: 'drag-orbit', source: 'pointer', gesture: 'pan', scene: 'stage', inputRange: [0, 1], a11yFallback: 'static' },
+        ],
+        build: { target: 'static', ssr: true, minify: false },
+      },
+    };
+
+    const rootEl = document.getElementById('lumen-root');
+    const statusEl = document.getElementById('status');
+    const buttons = [...document.querySelectorAll('button[data-template]')];
+
+    console.info('available templates:', listTemplates());
+
+    let app = null;
+    async function mount(name) {
+      statusEl.textContent = `mounting ${name}…`;
+      if (app) {
+        app.dispose();
+        rootEl.removeAttribute('data-lumen-booted');
+        rootEl.replaceChildren();
+      }
+      app = await createLumenApp(CONFIGS[name]);
+      try {
+        await app.boot(rootEl);
+        statusEl.textContent = `${name} booted (assets are placeholder URLs — media may 404, the scene graph still runs).`;
+      } catch (err) {
+        statusEl.textContent = `${name}: boot failed — ${err.message}`;
+        console.error(err);
+      }
+      for (const b of buttons) b.setAttribute('aria-pressed', String(b.dataset.template === name));
+    }
+
+    for (const b of buttons) b.addEventListener('click', () => mount(b.dataset.template));
+    await mount('scroll-cinema-landing');
+  </script>
+</body>
+</html>

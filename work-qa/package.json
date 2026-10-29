@@ -1,0 +1,17 @@
+{
+  "name": "lumen-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "contracts", "examples/*"],
+  "scripts": {
+    "build": "bash scripts/build-all.sh",
+    "link": "node scripts/link-workspaces.mjs",
+    "test": "node --test tests/e2e/",
+    "example": "node examples/simple-site/build-example.mjs",
+    "typecheck": "tsc -p tsconfig.build.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

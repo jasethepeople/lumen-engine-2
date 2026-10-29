@@ -1,0 +1,30 @@
+{
+  "name": "@lumen/codegen",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Lumen engine — config + composed scene to code/bundle generation (static, webcomponent, npm, runtime targets).",
+  "main": "./dist/packages/codegen/src/index.js",
+  "types": "./dist/packages/codegen/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/packages/codegen/src/index.d.ts",
+      "import": "./dist/packages/codegen/src/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/"
+  },
+  "dependencies": {
+    "@lumen/contracts": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  },
+  "license": "UNLICENSED"
+}

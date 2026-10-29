@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Aurora — Scroll Cinema</title>
+  <meta name="description" content="A premium scroll-scrubbed cinematic landing page built with Lumen.">
+  <meta property="og:title" content="Aurora — Scroll Cinema">
+  <meta property="og:description" content="A premium scroll-scrubbed cinematic landing page built with Lumen.">
+  <meta property="og:type" content="website">
+  <script type="importmap">{"imports":{"@lumen/runtime":"./vendor/runtime/index.js","@lumen/kernel":"./vendor/kernel/index.js","@lumen/scene":"./vendor/scene/index.js","@lumen/rendering":"./vendor/rendering/index.js","@lumen/assets":"./vendor/assets/index.js","@lumen/interaction":"./vendor/interaction/index.js","@lumen/contracts":"./vendor/contracts/index.js"}}</script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    html,body{margin:0;padding:0}
+    :root {
+      --lumen-color-background: #050507;
+      --lumen-color-foreground: #f4f2ec;
+      --lumen-color-accent: #c9a86a;
+      --lumen-color-caption-bg: rgba(5, 5, 7, 0.45);
+      --lumen-color-chapter-bg: rgba(5, 5, 7, 0.6);
+      --lumen-color-color-bg: #0b0d10;
+      --lumen-color-color-fg: #f5f7fa;
+      --lumen-color-color-accent: #6aa9ff;
+      --lumen-color-color-muted: #8b93a1;
+      --lumen-type-caption-size: 0.875rem;
+      --lumen-type-caption-line-height: 1.4;
+      --lumen-type-caption-weight: 400;
+      --lumen-type-body-size: 1rem;
+      --lumen-type-body-line-height: 1.5;
+      --lumen-type-body-weight: 400;
+      --lumen-type-title-size: 1.75rem;
+      --lumen-type-title-line-height: 1.25;
+      --lumen-type-title-weight: 600;
+      --lumen-type-display-size: 3rem;
+      --lumen-type-display-line-height: 1.1;
+      --lumen-type-display-weight: 700;
+      --lumen-space-xs: 0.25rem;
+      --lumen-space-sm: 0.5rem;
+      --lumen-space-md: 1rem;
+      --lumen-space-lg: 2rem;
+      --lumen-space-xl: 4rem;
+      --lumen-duration-fast: 150ms;
+      --lumen-duration-medium: 400ms;
+      --lumen-duration-slow: 600ms;
+      --lumen-duration-normal: 300ms;
+      --lumen-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+      --lumen-ease-emphasized: cubic-bezier(0.3, 0, 0, 1);
+    }
+    .lumen-root{min-height:100vh;min-height:100dvh;touch-action:pan-y}
+    .lumen-scene{position:relative}
+    .lumen-canvas{display:block;width:100%;height:100%}
+  </style>
+</head>
+<body>
+  <main class="lumen-root" id="lumen-root" data-site="scroll-cinema-landing">
+    <section id="stage" class="lumen-scene" data-slot="stage" aria-label="Aurora background film" data-lumen-skeleton="1">
+          <div class="lumen-spatial" data-node="node-stage-video" data-asset="cinema-video" role="img" aria-label="Aurora background film"></div>
+          <section class="lumen-scene" data-node="node-brand">
+            <div class="lumen-dom" data-node="brand-mark">
+              <span class="logo">AURORA</span>
+            </div>
+          </section>
+          <section class="lumen-scene" data-node="node-hero-caption">
+            <div class="lumen-dom" data-node="hero-title">
+              <h1>Light, in motion.</h1><p>Scroll to begin.</p>
+            </div>
+          </section>
+          <section class="lumen-scene" data-node="node-chapter-1">
+            <div class="lumen-dom" data-node="chapter-1-text">
+              <h2>Chapter I</h2><p>The sky ignites.</p>
+            </div>
+          </section>
+          <section class="lumen-scene" data-node="node-chapter-2">
+            <div class="lumen-dom" data-node="chapter-2-text">
+              <h2>Chapter II</h2><p>Colour becomes weather.</p>
+            </div>
+          </section>
+          <section class="lumen-scene" data-node="node-chapter-3">
+            <div class="lumen-dom" data-node="chapter-3-text">
+              <h2>Chapter III</h2><p>Silence, then dawn.</p>
+            </div>
+          </section>
+          <section class="lumen-scene" data-node="node-outro">
+            <div class="lumen-dom" data-node="outro-cta">
+              <h2>Aurora</h2><p>Available worldwide.</p>
+            </div>
+          </section>
+    </section>
+    <section id="brand" class="lumen-scene" data-slot="logo" aria-label="Brand logo">
+    </section>
+    <section id="hero-caption" class="lumen-scene" data-slot="hero-caption" aria-label="Hero caption">
+    </section>
+    <section id="chapter-1" class="lumen-scene" data-slot="chapters" aria-label="Chapter one">
+    </section>
+    <section id="chapter-2" class="lumen-scene" data-slot="chapters" aria-label="Chapter two">
+    </section>
+    <section id="chapter-3" class="lumen-scene" data-slot="chapters" aria-label="Chapter three">
+    </section>
+    <section id="outro" class="lumen-scene" data-slot="outro" aria-label="Outro call to action">
+    </section>
+  </main>
+  <noscript>
+    <div class="lumen-noscript">
+      <h1>Aurora — Scroll Cinema</h1>
+      <p>A premium scroll-scrubbed cinematic landing page built with Lumen.</p>
+      <section aria-label="Aurora background film">
+        <p>An aurora borealis timelapse scrubbed by page scroll.</p>
+      </section>
+      <section aria-label="Brand logo">
+      </section>
+      <section aria-label="Hero caption">
+      </section>
+      <section aria-label="Chapter one">
+      </section>
+      <section aria-label="Chapter two">
+      </section>
+      <section aria-label="Chapter three">
+      </section>
+      <section aria-label="Outro call to action">
+      </section>
+    </div>
+  </noscript>
+  <script type="application/json" id="lumen-scene-ir">{"version":1,"minRuntime":"0.1.0","site":{"id":"scroll-cinema-landing","title":"Aurora — Scroll Cinema","description":"A premium scroll-scrubbed cinematic landing page built with Lumen.","locale":"en"},"template":"scroll-video","theme":{"colors":{"background":"#050507","foreground":"#f4f2ec","accent":"#c9a86a","caption-bg":"rgba(5, 5, 7, 0.45)","chapter-bg":"rgba(5, 5, 7, 0.6)","color-bg":"#0b0d10","color-fg":"#f5f7fa","color-accent":"#6aa9ff","color-muted":"#8b93a1"},"typeScale":{"caption":{"size":"0.875rem","lineHeight":1.4,"weight":400},"body":{"size":"1rem","lineHeight":1.5,"weight":400},"title":{"size":"1.75rem","lineHeight":1.25,"weight":600},"display":{"size":"3rem","lineHeight":1.1,"weight":700}},"spacing":{"xs":"0.25rem","sm":"0.5rem","md":"1rem","lg":"2rem","xl":"4rem"},"motion":{"standard":[0.2,0,0,1],"emphasized":[0.3,0,0,1],"duration":{"fast":150,"medium":400,"slow":600,"normal":300}}},"nodes":[{"id":"node-stage-video","kind":"video-plane","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":0,"visible":true,"bindings":[{"trackId":"track-stage-scrub","property":"playback.time","easing":"linear"},{"trackId":"track-stage-parallax","property":"transform.scale","easing":"linear"}],"children":[],"meta":{"scroll-cinema-landing":{"slot":"stage","a11y":{"label":"Aurora background film","summary":"An aurora borealis timelapse scrubbed by page scroll."},"theme":{"colors":{"background":"#050507","foreground":"#f4f2ec","accent":"#c9a86a","caption-bg":"rgba(5, 5, 7, 0.45)","chapter-bg":"rgba(5, 5, 7, 0.6)","color-bg":"#0b0d10","color-fg":"#f5f7fa","color-accent":"#6aa9ff","color-muted":"#8b93a1"},"typeScale":{"caption":{"size":"0.875rem","lineHeight":1.4,"weight":400},"body":{"size":"1rem","lineHeight":1.5,"weight":400},"title":{"size":"1.75rem","lineHeight":1.25,"weight":600},"display":{"size":"3rem","lineHeight":1.1,"weight":700}},"spacing":{"xs":"0.25rem","sm":"0.5rem","md":"1rem","lg":"2rem","xl":"4rem"},"motion":{"standard":[0.2,0,0,1],"emphasized":[0.3,0,0,1],"duration":{"fast":150,"medium":400,"slow":600,"normal":300}}},"parallaxScale":[1,1.08]}},"assetId":"cinema-video","scrubbed":true},{"id":"node-brand","kind":"group","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":30,"visible":true,"bindings":[],"children":[{"id":"brand-mark","kind":"dom","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":31,"visible":true,"bindings":[],"children":[],"meta":{"scroll-cinema-landing":{"slot":"logo","a11y":{"label":"Brand logo"}}},"html":"\u003cspan class=\"logo\"\u003eAURORA\u003c/span\u003e"}],"meta":{"scroll-cinema-landing":{"slot":"logo","a11y":{"label":"Brand logo"},"static":true}}},{"id":"node-hero-caption","kind":"group","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":20,"visible":true,"bindings":[{"trackId":"track-hero-caption","property":"material.opacity"}],"children":[{"id":"hero-title","kind":"dom","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":21,"visible":true,"bindings":[{"trackId":"track-hero-caption","property":"transform.position"}],"children":[],"meta":{"scroll-cinema-landing":{"slot":"hero-caption","a11y":{"label":"Hero caption"}}},"html":"\u003ch1\u003eLight, in motion.\u003c/h1\u003e\u003cp\u003eScroll to begin.\u003c/p\u003e"}],"meta":{"scroll-cinema-landing":{"slot":"hero-caption","a11y":{"label":"Hero caption"},"fadeOutRange":[0,1.5]}}},{"id":"node-chapter-1","kind":"group","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":10,"visible":true,"bindings":[{"trackId":"track-chapter-1","property":"material.opacity"}],"children":[{"id":"chapter-1-text","kind":"dom","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":11,"visible":true,"bindings":[{"trackId":"track-chapter-1","property":"transform.position"}],"children":[],"meta":{"scroll-cinema-landing":{"slot":"chapters","a11y":{"label":"Chapter one"}}},"html":"\u003ch2\u003eChapter I\u003c/h2\u003e\u003cp\u003eThe sky ignites.\u003c/p\u003e"}],"meta":{"scroll-cinema-landing":{"slot":"chapters","a11y":{"label":"Chapter one"},"scrollRange":[1.5,3.9333333333333336]}}},{"id":"node-chapter-2","kind":"group","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":10,"visible":true,"bindings":[{"trackId":"track-chapter-2","property":"material.opacity"}],"children":[{"id":"chapter-2-text","kind":"dom","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":11,"visible":true,"bindings":[{"trackId":"track-chapter-2","property":"transform.position"}],"children":[],"meta":{"scroll-cinema-landing":{"slot":"chapters","a11y":{"label":"Chapter two"}}},"html":"\u003ch2\u003eChapter II\u003c/h2\u003e\u003cp\u003eColour becomes weather.\u003c/p\u003e"}],"meta":{"scroll-cinema-landing":{"slot":"chapters","a11y":{"label":"Chapter two"},"scrollRange":[3.9333333333333336,6.366666666666667]}}},{"id":"node-chapter-3","kind":"group","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":10,"visible":true,"bindings":[{"trackId":"track-chapter-3","property":"material.opacity"}],"children":[{"id":"chapter-3-text","kind":"dom","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":11,"visible":true,"bindings":[{"trackId":"track-chapter-3","property":"transform.position"}],"children":[],"meta":{"scroll-cinema-landing":{"slot":"chapters","a11y":{"label":"Chapter three"}},"scrollRange":[6.2,8.2]},"html":"\u003ch2\u003eChapter III\u003c/h2\u003e\u003cp\u003eSilence, then dawn.\u003c/p\u003e"}],"meta":{"scroll-cinema-landing":{"slot":"chapters","a11y":{"label":"Chapter three"},"scrollRange":[6.2,8.2]}}},{"id":"node-outro","kind":"group","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":20,"visible":true,"bindings":[{"trackId":"track-outro","property":"material.opacity"}],"children":[{"id":"outro-cta","kind":"dom","transform":{"position":[0,0,0],"rotationQuat":[0,0,0,1],"scale":[1,1,1]},"layer":21,"visible":true,"bindings":[{"trackId":"track-outro","property":"transform.position"}],"children":[],"meta":{"scroll-cinema-landing":{"slot":"outro","a11y":{"label":"Outro call to action"}}},"html":"\u003ch2\u003eAurora\u003c/h2\u003e\u003cp\u003eAvailable worldwide.\u003c/p\u003e"}],"meta":{"scroll-cinema-landing":{"slot":"outro","a11y":{"label":"Outro call to action"},"fadeInRange":[8.8,10]}}}],"tracks":[{"id":"track-stage-scrub","target":"node-stage-video","driver":"scroll","range":[0,10],"keyframes":[{"t":0,"value":0,"easing":"linear"},{"t":10,"value":12,"easing":"linear"}]},{"id":"track-stage-parallax","target":"node-stage-video","driver":"scroll","range":[0,10],"keyframes":[{"t":0,"value":1,"easing":"linear"},{"t":10,"value":1.08,"easing":"linear"}]},{"id":"track-hero-caption","target":"node-hero-caption","driver":"scroll","range":[0,1.5],"keyframes":[{"t":0,"value":1},{"t":1.5,"value":0,"easing":"ease-in"}]},{"id":"track-chapter-1","target":"node-chapter-1","driver":"scroll","range":[1.5,3.9333333333333336],"keyframes":[{"t":1.5,"value":0,"easing":"ease-out"},{"t":1.792,"value":1},{"t":3.6413333333333338,"value":1},{"t":3.9333333333333336,"value":0,"easing":"ease-in"}]},{"id":"track-chapter-2","target":"node-chapter-2","driver":"scroll","range":[3.9333333333333336,6.366666666666667],"keyframes":[{"t":3.9333333333333336,"value":0,"easing":"ease-out"},{"t":4.225333333333333,"value":1},{"t":6.074666666666667,"value":1},{"t":6.366666666666667,"value":0,"easing":"ease-in"}]},{"id":"track-chapter-3","target":"node-chapter-3","driver":"scroll","range":[6.2,8.2],"keyframes":[{"t":6.2,"value":0,"easing":"ease-out"},{"t":6.44,"value":1},{"t":7.959999999999999,"value":1},{"t":8.2,"value":0,"easing":"ease-in"}]},{"id":"track-outro","target":"node-outro","driver":"scroll","range":[8.8,10],"keyframes":[{"t":8.8,"value":0,"easing":"ease-out"},{"t":10,"value":1}]}],"bindings":[{"id":"scroll-scrub","source":"scroll","targetNodeId":"node-stage-video","targetTrackId":"track-stage-scrub","mapping":{"inputRange":[0,1],"outputRange":[0,10]},"a11yFallback":"native-video"}],"assets":[{"id":"cinema-video","src":"https://media.example.com/lumen/aurora.mp4","kind":"video","preload":"critical","duration":12},{"id":"cinema-poster","src":"https://media.example.com/lumen/aurora-poster.jpg","kind":"image","preload":"eager"}],"hydration":{"ssr":true,"islands":["node-brand","node-hero-caption","node-chapter-1","node-chapter-2","node-chapter-3","node-outro"]},"a11y":{"stage":{"label":"Aurora background film","summary":"An aurora borealis timelapse scrubbed by page scroll."},"brand":{"label":"Brand logo"},"hero-caption":{"label":"Hero caption"},"chapter-1":{"label":"Chapter one"},"chapter-2":{"label":"Chapter two"},"chapter-3":{"label":"Chapter three"},"outro":{"label":"Outro call to action"}}}</script>
+  <script type="module" src="./main.942e4f6905.js"></script>
+</body>
+</html>

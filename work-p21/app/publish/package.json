@@ -1,0 +1,23 @@
+{
+  "name": "@lumen/app-publish",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Lumen Builder — publish pipeline: static export into an in-memory bundle, mock Vercel deploys (zero network), publish history with rollback, and an entitlement gate hook.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/"
+  },
+  "license": "UNLICENSED"
+}

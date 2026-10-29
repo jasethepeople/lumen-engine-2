@@ -1,0 +1,134 @@
+{
+  // Lumen engine example — 'scroll-cinema-landing' (a scroll-cinema landing page).
+  // Uses template kind "scroll-video" resolved through createExtendedRegistry(),
+  // which specializes it to the scroll-cinema-landing descriptor.
+  // Slots: stage (1 video), logo (0..1 dom), hero-caption (0..1),
+  // chapters (0..6, optional meta.scrollRange override), outro (0..1).
+  "version": 3,
+  "id": "scroll-cinema-landing",
+  "template": "scroll-video",
+  "meta": {
+    "title": "Aurora — Scroll Cinema",
+    "description": "A premium scroll-scrubbed cinematic landing page built with Lumen.",
+    "locale": "en"
+  },
+  "theme": {
+    "colors": {
+      // merged over SCROLL_CINEMA_LANDING_THEME_DEFAULTS → --lumen-color-*
+      "background": "#050507",
+      "foreground": "#f4f2ec",
+      "accent": "#c9a86a"
+    }
+  },
+  "assets": [
+    {
+      "id": "cinema-video",
+      "src": "https://media.example.com/lumen/aurora.mp4", // placeholder remote URL
+      "kind": "video",
+      "duration": 12,
+      "preload": "critical"
+    },
+    {
+      "id": "cinema-poster",
+      "src": "https://media.example.com/lumen/aurora-poster.jpg",
+      "kind": "image",
+      "preload": "eager"
+    }
+  ],
+  "scenes": [
+    {
+      // Stage: the scrubbed video. Its durationOrRange IS the full scroll extent
+      // (10 units); the video scrubs 0..duration across all of it, with a
+      // parallax scale of 1.0 → 1.08 driven by the same scroll track range.
+      "id": "stage",
+      "slot": "stage",
+      "nodes": [
+        { "id": "stage-video", "kind": "video-plane", "assetId": "cinema-video" }
+      ],
+      "track": { "driver": "scroll", "durationOrRange": 10 },
+      "a11y": {
+        "label": "Aurora background film",
+        "summary": "An aurora borealis timelapse scrubbed by page scroll."
+      }
+    },
+    {
+      // Logo: static DOM node, top layer, no track — always visible.
+      "id": "brand",
+      "slot": "logo",
+      "nodes": [
+        { "id": "brand-mark", "kind": "dom", "html": "<span class=\"logo\">AURORA</span>" }
+      ],
+      "track": { "driver": "scroll", "durationOrRange": 10 },
+      "a11y": { "label": "Brand logo" }
+    },
+    {
+      // Hero caption: fades out over the first 15% of the total scroll range.
+      "id": "hero-caption",
+      "slot": "hero-caption",
+      "nodes": [
+        {
+          "id": "hero-title",
+          "kind": "dom",
+          "html": "<h1>Light, in motion.</h1><p>Scroll to begin.</p>"
+        }
+      ],
+      "track": { "driver": "scroll", "durationOrRange": 10 },
+      "a11y": { "label": "Hero caption" }
+    },
+    {
+      // Chapters: each fades in, holds, fades out over its window. Windows are
+      // equal slices of the middle scroll region by default; chapter 3 below
+      // overrides its window with meta.scrollRange on its first node.
+      "id": "chapter-1",
+      "slot": "chapters",
+      "nodes": [
+        { "id": "chapter-1-text", "kind": "dom", "html": "<h2>Chapter I</h2><p>The sky ignites.</p>" }
+      ],
+      "track": { "driver": "scroll", "durationOrRange": 2 },
+      "a11y": { "label": "Chapter one" }
+    },
+    {
+      "id": "chapter-2",
+      "slot": "chapters",
+      "nodes": [
+        { "id": "chapter-2-text", "kind": "dom", "html": "<h2>Chapter II</h2><p>Colour becomes weather.</p>" }
+      ],
+      "track": { "driver": "scroll", "durationOrRange": 2 },
+      "a11y": { "label": "Chapter two" }
+    },
+    {
+      "id": "chapter-3",
+      "slot": "chapters",
+      "nodes": [
+        {
+          "id": "chapter-3-text",
+          "kind": "dom",
+          "html": "<h2>Chapter III</h2><p>Silence, then dawn.</p>",
+          "meta": { "scrollRange": [6.2, 8.2] } // explicit scroll window override
+        }
+      ],
+      "track": { "driver": "scroll", "durationOrRange": 2 },
+      "a11y": { "label": "Chapter three" }
+    },
+    {
+      // Outro: fades in over the last 12% of the total scroll range.
+      "id": "outro",
+      "slot": "outro",
+      "nodes": [
+        { "id": "outro-cta", "kind": "dom", "html": "<h2>Aurora</h2><p>Available worldwide.</p>" }
+      ],
+      "track": { "driver": "scroll", "durationOrRange": 10 },
+      "a11y": { "label": "Outro call to action" }
+    }
+  ],
+  "interactions": [
+    {
+      "id": "scroll-scrub",
+      "source": "scroll",
+      "scene": "stage",              // drives the scrub + parallax track range
+      "inputRange": [0, 1],
+      "a11yFallback": "native-video" // reduced-input users get a native <video>
+    }
+  ],
+  "build": { "target": "static", "ssr": true, "minify": false }
+}
